@@ -19,8 +19,16 @@ enum Pane {
     Right,
 }
 
+#[derive(Default, PartialEq, Clone, Copy)]
+enum Mode {
+    #[default]
+    Normal,
+    Insert,
+}
+
 struct App {
     focused: Pane,
+    mode: Mode,
     term: Option<Terminal>,
     last_term_size: (u16, u16),
 }
@@ -29,6 +37,7 @@ impl App {
     fn new() -> Self {
         Self {
             focused: Pane::Left,
+            mode: Mode::Normal,
             term: None,
             last_term_size: (0, 0),
         }
@@ -78,26 +87,48 @@ fn run(app: &mut App, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
                     continue;
                 }
 
-                // Ctrl+Q to quit
-                if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                    break;
-                }
+                match app.mode {
+                    Mode::Insert => {
+                        // Escape exits insert mode
+                        if key.code == KeyCode::Esc {
+                            app.mode = Mode::Normal;
+                            continue;
+                        }
 
-                // Tab to switch panes
-                if key.code == KeyCode::Tab {
-                    app.focused = match app.focused {
-                        Pane::Left => Pane::Right,
-                        Pane::Right => Pane::Left,
-                    };
-                    continue;
-                }
-
-                // Forward input to terminal if left pane focused
-                if app.focused == Pane::Left {
-                    if let Some(ref mut term) = app.term {
-                        let bytes = key_to_bytes(&key);
-                        if !bytes.is_empty() {
-                            let _ = term.write(&bytes);
+                        // Forward all other input to terminal
+                        if app.focused == Pane::Left {
+                            if let Some(ref mut term) = app.term {
+                                let bytes = key_to_bytes(&key);
+                                if !bytes.is_empty() {
+                                    let _ = term.write(&bytes);
+                                }
+                            }
+                        }
+                    }
+                    Mode::Normal => {
+                        match key.code {
+                            // 'q' quits in normal mode
+                            KeyCode::Char('q') => break,
+                            // 'i' enters insert mode (only when terminal pane focused)
+                            KeyCode::Char('i') if app.focused == Pane::Left => {
+                                app.mode = Mode::Insert;
+                            }
+                            // Navigation: h or Left arrow to left pane
+                            KeyCode::Char('h') | KeyCode::Left => {
+                                app.focused = Pane::Left;
+                            }
+                            // Navigation: l or Right arrow to right pane
+                            KeyCode::Char('l') | KeyCode::Right => {
+                                app.focused = Pane::Right;
+                            }
+                            // Tab still works for pane switching
+                            KeyCode::Tab => {
+                                app.focused = match app.focused {
+                                    Pane::Left => Pane::Right,
+                                    Pane::Right => Pane::Left,
+                                };
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -152,9 +183,15 @@ fn key_to_bytes(key: &event::KeyEvent) -> Vec<u8> {
 }
 
 fn render(app: &mut App, frame: &mut Frame) {
+    // Split into main area and status bar (1 row at bottom)
+    let [main_area, status_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
+            .areas(frame.area());
+
+    // Split main area into left and right panes
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .areas(frame.area());
+            .areas(main_area);
 
     // Ensure terminal is created/resized
     app.ensure_terminal(left);
@@ -174,6 +211,18 @@ fn render(app: &mut App, frame: &mut Frame) {
 
     let right_pane = Paragraph::new("Pane 2").block(right_block);
     frame.render_widget(right_pane, right);
+
+    // Render status bar
+    let mode_text = match app.mode {
+        Mode::Normal => "NORMAL",
+        Mode::Insert => "INSERT",
+    };
+    let mode_style = match app.mode {
+        Mode::Normal => Style::default().fg(Color::Black).bg(Color::Cyan),
+        Mode::Insert => Style::default().fg(Color::Black).bg(Color::Green),
+    };
+    let status_bar = Paragraph::new(format!(" {} ", mode_text)).style(mode_style);
+    frame.render_widget(status_bar, status_area);
 }
 
 fn border_style(focused: bool) -> Style {
