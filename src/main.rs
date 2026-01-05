@@ -26,18 +26,16 @@ enum Mode {
     Insert,
 }
 
-struct App {
+struct Tab {
     focused: Pane,
-    mode: Mode,
     term: Option<Terminal>,
     last_term_size: (u16, u16),
 }
 
-impl App {
+impl Tab {
     fn new() -> Self {
         Self {
             focused: Pane::Left,
-            mode: Mode::Normal,
             term: None,
             last_term_size: (0, 0),
         }
@@ -56,6 +54,30 @@ impl App {
                 self.last_term_size = size;
             }
         }
+    }
+}
+
+struct App {
+    tabs: Vec<Tab>,
+    active_tab: usize,
+    mode: Mode,
+}
+
+impl App {
+    fn new() -> Self {
+        Self {
+            tabs: vec![Tab::new()],
+            active_tab: 0,
+            mode: Mode::Normal,
+        }
+    }
+
+    fn current_tab(&self) -> &Tab {
+        &self.tabs[self.active_tab]
+    }
+
+    fn current_tab_mut(&mut self) -> &mut Tab {
+        &mut self.tabs[self.active_tab]
     }
 }
 
@@ -96,8 +118,9 @@ fn run(app: &mut App, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
                         }
 
                         // Forward all other input to terminal
-                        if app.focused == Pane::Left {
-                            if let Some(ref mut term) = app.term {
+                        let tab = app.current_tab_mut();
+                        if tab.focused == Pane::Left {
+                            if let Some(ref mut term) = tab.term {
                                 let bytes = key_to_bytes(&key);
                                 if !bytes.is_empty() {
                                     let _ = term.write(&bytes);
@@ -109,21 +132,34 @@ fn run(app: &mut App, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
                         match key.code {
                             // 'q' quits in normal mode
                             KeyCode::Char('q') => break,
+                            // 't' creates a new tab
+                            KeyCode::Char('t') => {
+                                app.tabs.push(Tab::new());
+                                app.active_tab = app.tabs.len() - 1;
+                            }
+                            // Number keys 1-9 switch tabs
+                            KeyCode::Char(c @ '1'..='9') => {
+                                let tab_idx = (c as usize) - ('1' as usize);
+                                if tab_idx < app.tabs.len() {
+                                    app.active_tab = tab_idx;
+                                }
+                            }
                             // 'i' enters insert mode (only when terminal pane focused)
-                            KeyCode::Char('i') if app.focused == Pane::Left => {
+                            KeyCode::Char('i') if app.current_tab().focused == Pane::Left => {
                                 app.mode = Mode::Insert;
                             }
                             // Navigation: h or Left arrow to left pane
                             KeyCode::Char('h') | KeyCode::Left => {
-                                app.focused = Pane::Left;
+                                app.current_tab_mut().focused = Pane::Left;
                             }
                             // Navigation: l or Right arrow to right pane
                             KeyCode::Char('l') | KeyCode::Right => {
-                                app.focused = Pane::Right;
+                                app.current_tab_mut().focused = Pane::Right;
                             }
-                            // Tab still works for pane switching
+                            // Tab key still works for pane switching
                             KeyCode::Tab => {
-                                app.focused = match app.focused {
+                                let tab = app.current_tab_mut();
+                                tab.focused = match tab.focused {
                                     Pane::Left => Pane::Right,
                                     Pane::Right => Pane::Left,
                                 };
@@ -183,29 +219,45 @@ fn key_to_bytes(key: &event::KeyEvent) -> Vec<u8> {
 }
 
 fn render(app: &mut App, frame: &mut Frame) {
-    // Split into main area and status bar (1 row at bottom)
-    let [main_area, status_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
+    // Split into tab bar, main area, and status bar
+    let [tab_area, main_area, status_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
             .areas(frame.area());
+
+    // Render tab bar
+    let mut tab_spans = Vec::new();
+    for (i, _) in app.tabs.iter().enumerate() {
+        let tab_num = i + 1;
+        let style = if i == app.active_tab {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::White).bg(Color::DarkGray)
+        };
+        tab_spans.push(ratatui::text::Span::styled(format!(" {} ", tab_num), style));
+        tab_spans.push(ratatui::text::Span::raw(" "));
+    }
+    let tab_bar = ratatui::text::Line::from(tab_spans);
+    frame.render_widget(Paragraph::new(tab_bar), tab_area);
 
     // Split main area into left and right panes
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(main_area);
 
-    // Ensure terminal is created/resized
-    app.ensure_terminal(left);
+    // Ensure terminal is created/resized for current tab
+    app.current_tab_mut().ensure_terminal(left);
 
+    let tab = app.current_tab();
     let left_block = Block::bordered()
         .title("Terminal")
-        .border_style(border_style(app.focused == Pane::Left));
+        .border_style(border_style(tab.focused == Pane::Left));
     let right_block = Block::bordered()
         .title("Right")
-        .border_style(border_style(app.focused == Pane::Right));
+        .border_style(border_style(tab.focused == Pane::Right));
 
     // Render left pane with terminal
     frame.render_widget(left_block.clone(), left);
-    if let Some(ref term) = app.term {
+    if let Some(ref term) = tab.term {
         frame.render_widget(term.widget(), inner_area(left));
     }
 
