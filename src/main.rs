@@ -28,30 +28,49 @@ enum Mode {
 
 struct Tab {
     focused: Pane,
-    term: Option<Terminal>,
-    last_term_size: (u16, u16),
+    left_term: Option<Terminal>,
+    right_term: Option<Terminal>,
+    last_left_size: (u16, u16),
+    last_right_size: (u16, u16),
 }
 
 impl Tab {
     fn new() -> Self {
         Self {
             focused: Pane::Left,
-            term: None,
-            last_term_size: (0, 0),
+            left_term: None,
+            right_term: None,
+            last_left_size: (0, 0),
+            last_right_size: (0, 0),
         }
     }
 
-    fn ensure_terminal(&mut self, area: Rect) {
+    fn ensure_left_terminal(&mut self, area: Rect) {
         let inner = inner_area(area);
         let size = (inner.width, inner.height);
 
-        if self.term.is_none() && size.0 > 0 && size.1 > 0 {
-            self.term = Terminal::new(size.0, size.1).ok();
-            self.last_term_size = size;
-        } else if self.last_term_size != size && size.0 > 0 && size.1 > 0 {
-            if let Some(ref mut term) = self.term {
+        if self.left_term.is_none() && size.0 > 0 && size.1 > 0 {
+            self.left_term = Terminal::new(size.0, size.1).ok();
+            self.last_left_size = size;
+        } else if self.last_left_size != size && size.0 > 0 && size.1 > 0 {
+            if let Some(ref mut term) = self.left_term {
                 term.resize(size.0, size.1);
-                self.last_term_size = size;
+                self.last_left_size = size;
+            }
+        }
+    }
+
+    fn ensure_right_terminal(&mut self, area: Rect) {
+        let inner = inner_area(area);
+        let size = (inner.width, inner.height);
+
+        if self.right_term.is_none() && size.0 > 0 && size.1 > 0 {
+            self.right_term = Terminal::with_command(size.0, size.1, "claude", &[]).ok();
+            self.last_right_size = size;
+        } else if self.last_right_size != size && size.0 > 0 && size.1 > 0 {
+            if let Some(ref mut term) = self.right_term {
+                term.resize(size.0, size.1);
+                self.last_right_size = size;
             }
         }
     }
@@ -117,14 +136,16 @@ fn run(app: &mut App, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
                             continue;
                         }
 
-                        // Forward all other input to terminal
+                        // Forward all other input to focused terminal
                         let tab = app.current_tab_mut();
-                        if tab.focused == Pane::Left {
-                            if let Some(ref mut term) = tab.term {
-                                let bytes = key_to_bytes(&key);
-                                if !bytes.is_empty() {
-                                    let _ = term.write(&bytes);
-                                }
+                        let term = match tab.focused {
+                            Pane::Left => tab.left_term.as_mut(),
+                            Pane::Right => tab.right_term.as_mut(),
+                        };
+                        if let Some(term) = term {
+                            let bytes = key_to_bytes(&key);
+                            if !bytes.is_empty() {
+                                let _ = term.write(&bytes);
                             }
                         }
                     }
@@ -144,8 +165,8 @@ fn run(app: &mut App, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
                                     app.active_tab = tab_idx;
                                 }
                             }
-                            // 'i' enters insert mode (only when terminal pane focused)
-                            KeyCode::Char('i') if app.current_tab().focused == Pane::Left => {
+                            // 'i' enters insert mode
+                            KeyCode::Char('i') => {
                                 app.mode = Mode::Insert;
                             }
                             // Navigation: h or Left arrow to left pane
@@ -244,25 +265,30 @@ fn render(app: &mut App, frame: &mut Frame) {
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(main_area);
 
-    // Ensure terminal is created/resized for current tab
-    app.current_tab_mut().ensure_terminal(left);
+    // Ensure terminals are created/resized for current tab
+    let tab = app.current_tab_mut();
+    tab.ensure_left_terminal(left);
+    tab.ensure_right_terminal(right);
 
     let tab = app.current_tab();
     let left_block = Block::bordered()
         .title("Terminal")
         .border_style(border_style(tab.focused == Pane::Left));
     let right_block = Block::bordered()
-        .title("Right")
+        .title("Claude")
         .border_style(border_style(tab.focused == Pane::Right));
 
-    // Render left pane with terminal
+    // Render left pane with shell terminal
     frame.render_widget(left_block.clone(), left);
-    if let Some(ref term) = tab.term {
+    if let Some(ref term) = tab.left_term {
         frame.render_widget(term.widget(), inner_area(left));
     }
 
-    let right_pane = Paragraph::new("Pane 2").block(right_block);
-    frame.render_widget(right_pane, right);
+    // Render right pane with claude terminal
+    frame.render_widget(right_block.clone(), right);
+    if let Some(ref term) = tab.right_term {
+        frame.render_widget(term.widget(), inner_area(right));
+    }
 
     // Render status bar
     let mode_text = match app.mode {

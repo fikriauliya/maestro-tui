@@ -27,6 +27,11 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(cols: u16, rows: u16) -> color_eyre::Result<Self> {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        Self::with_command(cols, rows, &shell, &[])
+    }
+
+    pub fn with_command(cols: u16, rows: u16, program: &str, args: &[&str]) -> color_eyre::Result<Self> {
         let pty_system = native_pty_system();
 
         let pty_pair = pty_system
@@ -38,8 +43,10 @@ impl Terminal {
             })
             .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = CommandBuilder::new(program);
+        for arg in args {
+            cmd.arg(*arg);
+        }
         cmd.cwd(std::env::current_dir()?);
 
         let _child = pty_pair
