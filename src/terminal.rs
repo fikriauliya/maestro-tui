@@ -13,6 +13,9 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 
+#[cfg(test)]
+use crate::pty::PtyBackend;
+
 struct Listener;
 
 impl EventListener for Listener {
@@ -31,7 +34,12 @@ impl Terminal {
         Self::with_command(cols, rows, &shell, &[])
     }
 
-    pub fn with_command(cols: u16, rows: u16, program: &str, args: &[&str]) -> color_eyre::Result<Self> {
+    pub fn with_command(
+        cols: u16,
+        rows: u16,
+        program: &str,
+        args: &[&str],
+    ) -> color_eyre::Result<Self> {
         let pty_system = native_pty_system();
 
         let pty_pair = pty_system
@@ -109,6 +117,50 @@ impl Terminal {
     }
 }
 
+/// Testable terminal that uses a mock PTY backend
+#[cfg(test)]
+pub struct TestTerminal {
+    term: Arc<Mutex<Term<Listener>>>,
+    pty: Box<dyn PtyBackend>,
+}
+
+#[cfg(test)]
+impl TestTerminal {
+    pub fn new<P: PtyBackend + 'static>(cols: u16, rows: u16, pty: P) -> Self {
+        let size = TermSize::new(cols as usize, rows as usize);
+        let term = Term::new(Config::default(), &size, Listener);
+
+        Self {
+            term: Arc::new(Mutex::new(term)),
+            pty: Box::new(pty),
+        }
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.pty.write(data)
+    }
+
+    pub fn resize(&mut self, cols: u16, rows: u16) {
+        let size = TermSize::new(cols as usize, rows as usize);
+        self.term.lock().unwrap().resize(size);
+        self.pty.resize(cols, rows);
+    }
+
+    pub fn process_output(&mut self) {
+        if let Ok(Some(data)) = self.pty.try_read() {
+            let mut processor: Processor = Processor::new();
+            let mut term = self.term.lock().unwrap();
+            processor.advance(&mut *term, &data);
+        }
+    }
+
+    pub fn widget(&self) -> TerminalWidget {
+        TerminalWidget {
+            term: Arc::clone(&self.term),
+        }
+    }
+}
+
 pub struct TerminalWidget {
     term: Arc<Mutex<Term<Listener>>>,
 }
@@ -148,7 +200,7 @@ impl Widget for TerminalWidget {
     }
 }
 
-fn convert_color(color: alacritty_terminal::vte::ansi::Color) -> Color {
+pub fn convert_color(color: alacritty_terminal::vte::ansi::Color) -> Color {
     use alacritty_terminal::vte::ansi::Color as AC;
     use alacritty_terminal::vte::ansi::NamedColor;
 
@@ -174,5 +226,85 @@ fn convert_color(color: alacritty_terminal::vte::ansi::Color) -> Color {
         },
         AC::Spec(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
         AC::Indexed(idx) => Color::Indexed(idx),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pty::mock::MockPty;
+
+    #[test]
+    fn test_terminal_write_with_mock() {
+        let mock = MockPty::new(80, 24);
+        let mock_clone = mock.clone();
+        let mut term = TestTerminal::new(80, 24, mock);
+
+        term.write(b"hello").unwrap();
+        term.write(b"world").unwrap();
+
+        let written = mock_clone.get_written();
+        assert_eq!(written.len(), 2);
+        assert_eq!(written[0], b"hello");
+        assert_eq!(written[1], b"world");
+    }
+
+    #[test]
+    fn test_terminal_resize_with_mock() {
+        let mock = MockPty::new(80, 24);
+        let mock_clone = mock.clone();
+        let mut term = TestTerminal::new(80, 24, mock);
+
+        term.resize(120, 40);
+
+        assert_eq!(mock_clone.get_size(), (120, 40));
+    }
+
+    #[test]
+    fn test_terminal_widget_creation() {
+        let mock = MockPty::new(80, 24);
+        let term = TestTerminal::new(80, 24, mock);
+
+        // Just verify widget can be created without panic
+        let _widget = term.widget();
+    }
+
+    #[test]
+    fn test_terminal_process_output() {
+        let mock = MockPty::new(80, 24);
+        mock.queue_read(b"Hello".to_vec());
+        let mut term = TestTerminal::new(80, 24, mock);
+
+        // Process the queued output
+        term.process_output();
+
+        // Terminal should have processed the ANSI data
+        // (We just verify it doesn't panic)
+    }
+
+    #[test]
+    fn test_convert_color_named() {
+        use alacritty_terminal::vte::ansi::Color as AC;
+        use alacritty_terminal::vte::ansi::NamedColor;
+
+        assert_eq!(convert_color(AC::Named(NamedColor::Red)), Color::Red);
+        assert_eq!(convert_color(AC::Named(NamedColor::Green)), Color::Green);
+        assert_eq!(convert_color(AC::Named(NamedColor::BrightBlue)), Color::LightBlue);
+    }
+
+    #[test]
+    fn test_convert_color_rgb() {
+        use alacritty_terminal::vte::ansi::Color as AC;
+        use alacritty_terminal::vte::ansi::Rgb;
+
+        let rgb = Rgb { r: 255, g: 128, b: 64 };
+        assert_eq!(convert_color(AC::Spec(rgb)), Color::Rgb(255, 128, 64));
+    }
+
+    #[test]
+    fn test_convert_color_indexed() {
+        use alacritty_terminal::vte::ansi::Color as AC;
+
+        assert_eq!(convert_color(AC::Indexed(42)), Color::Indexed(42));
     }
 }

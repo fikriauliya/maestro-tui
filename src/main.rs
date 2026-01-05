@@ -1,113 +1,21 @@
+mod app;
+mod input;
+mod pty;
 mod terminal;
+mod ui;
 
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
+    layout::{Constraint, Layout},
     widgets::{Block, Paragraph},
     DefaultTerminal, Frame,
 };
 
+use crate::app::{handle_key_insert, handle_key_normal, inner_area, App, Command, Mode, Pane};
 use crate::terminal::Terminal;
-
-#[derive(Default, PartialEq)]
-enum Pane {
-    #[default]
-    Left,
-    Right,
-}
-
-#[derive(Default, PartialEq, Clone, Copy)]
-enum Mode {
-    #[default]
-    Normal,
-    Insert,
-}
-
-struct Tab {
-    focused: Pane,
-    left_term: Option<Terminal>,
-    right_term: Option<Terminal>,
-    last_left_size: (u16, u16),
-    last_right_size: (u16, u16),
-}
-
-impl Tab {
-    fn new() -> Self {
-        Self {
-            focused: Pane::Left,
-            left_term: None,
-            right_term: None,
-            last_left_size: (0, 0),
-            last_right_size: (0, 0),
-        }
-    }
-
-    fn ensure_left_terminal(&mut self, area: Rect) {
-        let inner = inner_area(area);
-        let size = (inner.width, inner.height);
-
-        if self.left_term.is_none() && size.0 > 0 && size.1 > 0 {
-            self.left_term = Terminal::new(size.0, size.1).ok();
-            self.last_left_size = size;
-        } else if self.last_left_size != size && size.0 > 0 && size.1 > 0 {
-            if let Some(ref mut term) = self.left_term {
-                term.resize(size.0, size.1);
-                self.last_left_size = size;
-            }
-        }
-    }
-
-    fn ensure_right_terminal(&mut self, area: Rect) {
-        let inner = inner_area(area);
-        let size = (inner.width, inner.height);
-
-        if self.right_term.is_none() && size.0 > 0 && size.1 > 0 {
-            self.right_term = Terminal::with_command(size.0, size.1, "claude", &[]).ok();
-            self.last_right_size = size;
-        } else if self.last_right_size != size && size.0 > 0 && size.1 > 0 {
-            if let Some(ref mut term) = self.right_term {
-                term.resize(size.0, size.1);
-                self.last_right_size = size;
-            }
-        }
-    }
-}
-
-struct App {
-    tabs: Vec<Tab>,
-    active_tab: usize,
-    mode: Mode,
-}
-
-impl App {
-    fn new() -> Self {
-        Self {
-            tabs: vec![Tab::new()],
-            active_tab: 0,
-            mode: Mode::Normal,
-        }
-    }
-
-    fn current_tab(&self) -> &Tab {
-        &self.tabs[self.active_tab]
-    }
-
-    fn current_tab_mut(&mut self) -> &mut Tab {
-        &mut self.tabs[self.active_tab]
-    }
-}
-
-fn inner_area(area: Rect) -> Rect {
-    Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    }
-}
+use crate::ui::{active_tab_style, border_style, inactive_tab_style, mode_style};
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -128,115 +36,21 @@ fn run(app: &mut App, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
                     continue;
                 }
 
-                match app.mode {
-                    Mode::Insert => {
-                        // Escape exits insert mode
-                        if key.code == KeyCode::Esc {
-                            app.mode = Mode::Normal;
-                            continue;
-                        }
+                let cmd = match app.mode {
+                    Mode::Insert => handle_key_insert(&key),
+                    Mode::Normal => handle_key_normal(&key),
+                };
 
-                        // Forward all other input to focused terminal
-                        let tab = app.current_tab_mut();
-                        let term = match tab.focused {
-                            Pane::Left => tab.left_term.as_mut(),
-                            Pane::Right => tab.right_term.as_mut(),
-                        };
-                        if let Some(term) = term {
-                            let bytes = key_to_bytes(&key);
-                            if !bytes.is_empty() {
-                                let _ = term.write(&bytes);
-                            }
-                        }
+                if let Some(cmd) = cmd {
+                    if matches!(cmd, Command::Quit) {
+                        break;
                     }
-                    Mode::Normal => {
-                        match key.code {
-                            // 'q' quits in normal mode
-                            KeyCode::Char('q') => break,
-                            // 't' creates a new tab
-                            KeyCode::Char('t') => {
-                                app.tabs.push(Tab::new());
-                                app.active_tab = app.tabs.len() - 1;
-                            }
-                            // Number keys 1-9 switch tabs
-                            KeyCode::Char(c @ '1'..='9') => {
-                                let tab_idx = (c as usize) - ('1' as usize);
-                                if tab_idx < app.tabs.len() {
-                                    app.active_tab = tab_idx;
-                                }
-                            }
-                            // 'i' enters insert mode
-                            KeyCode::Char('i') => {
-                                app.mode = Mode::Insert;
-                            }
-                            // Navigation: h or Left arrow to left pane
-                            KeyCode::Char('h') | KeyCode::Left => {
-                                app.current_tab_mut().focused = Pane::Left;
-                            }
-                            // Navigation: l or Right arrow to right pane
-                            KeyCode::Char('l') | KeyCode::Right => {
-                                app.current_tab_mut().focused = Pane::Right;
-                            }
-                            // Tab key still works for pane switching
-                            KeyCode::Tab => {
-                                let tab = app.current_tab_mut();
-                                tab.focused = match tab.focused {
-                                    Pane::Left => Pane::Right,
-                                    Pane::Right => Pane::Left,
-                                };
-                            }
-                            _ => {}
-                        }
-                    }
+                    app.execute(cmd);
                 }
             }
         }
     }
     Ok(())
-}
-
-fn key_to_bytes(key: &event::KeyEvent) -> Vec<u8> {
-    match key.code {
-        KeyCode::Char(c) => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                // Ctrl+letter -> ASCII 1-26
-                let ctrl = (c.to_ascii_lowercase() as u8).wrapping_sub(b'a' - 1);
-                vec![ctrl]
-            } else {
-                c.to_string().into_bytes()
-            }
-        }
-        KeyCode::Enter => vec![b'\r'],
-        KeyCode::Backspace => vec![127],
-        KeyCode::Tab => vec![b'\t'],
-        KeyCode::Esc => vec![0x1b],
-        KeyCode::Up => b"\x1b[A".to_vec(),
-        KeyCode::Down => b"\x1b[B".to_vec(),
-        KeyCode::Right => b"\x1b[C".to_vec(),
-        KeyCode::Left => b"\x1b[D".to_vec(),
-        KeyCode::Home => b"\x1b[H".to_vec(),
-        KeyCode::End => b"\x1b[F".to_vec(),
-        KeyCode::PageUp => b"\x1b[5~".to_vec(),
-        KeyCode::PageDown => b"\x1b[6~".to_vec(),
-        KeyCode::Delete => b"\x1b[3~".to_vec(),
-        KeyCode::Insert => b"\x1b[2~".to_vec(),
-        KeyCode::F(n) => match n {
-            1 => b"\x1bOP".to_vec(),
-            2 => b"\x1bOQ".to_vec(),
-            3 => b"\x1bOR".to_vec(),
-            4 => b"\x1bOS".to_vec(),
-            5 => b"\x1b[15~".to_vec(),
-            6 => b"\x1b[17~".to_vec(),
-            7 => b"\x1b[18~".to_vec(),
-            8 => b"\x1b[19~".to_vec(),
-            9 => b"\x1b[20~".to_vec(),
-            10 => b"\x1b[21~".to_vec(),
-            11 => b"\x1b[23~".to_vec(),
-            12 => b"\x1b[24~".to_vec(),
-            _ => vec![],
-        },
-        _ => vec![],
-    }
 }
 
 fn render(app: &mut App, frame: &mut Frame) {
@@ -250,9 +64,9 @@ fn render(app: &mut App, frame: &mut Frame) {
     for (i, _) in app.tabs.iter().enumerate() {
         let tab_num = i + 1;
         let style = if i == app.active_tab {
-            Style::default().fg(Color::Black).bg(Color::Cyan)
+            active_tab_style()
         } else {
-            Style::default().fg(Color::White).bg(Color::DarkGray)
+            inactive_tab_style()
         };
         tab_spans.push(ratatui::text::Span::styled(format!(" {} ", tab_num), style));
         tab_spans.push(ratatui::text::Span::raw(" "));
@@ -265,10 +79,32 @@ fn render(app: &mut App, frame: &mut Frame) {
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(main_area);
 
-    // Ensure terminals are created/resized for current tab
+    // Handle terminal creation and resize for current tab
     let tab = app.current_tab_mut();
-    tab.ensure_left_terminal(left);
-    tab.ensure_right_terminal(right);
+
+    if tab.needs_left_terminal(left) {
+        let inner = inner_area(left);
+        if let Ok(term) = Terminal::new(inner.width, inner.height) {
+            tab.set_left_terminal(term, left);
+        }
+    } else if let Some((cols, rows)) = tab.needs_left_resize(left) {
+        if let Some(ref mut term) = tab.left_term {
+            term.resize(cols, rows);
+            tab.update_left_size(left);
+        }
+    }
+
+    if tab.needs_right_terminal(right) {
+        let inner = inner_area(right);
+        if let Ok(term) = Terminal::with_command(inner.width, inner.height, "claude", &[]) {
+            tab.set_right_terminal(term, right);
+        }
+    } else if let Some((cols, rows)) = tab.needs_right_resize(right) {
+        if let Some(ref mut term) = tab.right_term {
+            term.resize(cols, rows);
+            tab.update_right_size(right);
+        }
+    }
 
     let tab = app.current_tab();
     let left_block = Block::bordered()
@@ -295,18 +131,6 @@ fn render(app: &mut App, frame: &mut Frame) {
         Mode::Normal => "NORMAL",
         Mode::Insert => "INSERT",
     };
-    let mode_style = match app.mode {
-        Mode::Normal => Style::default().fg(Color::Black).bg(Color::Cyan),
-        Mode::Insert => Style::default().fg(Color::Black).bg(Color::Green),
-    };
-    let status_bar = Paragraph::new(format!(" {} ", mode_text)).style(mode_style);
+    let status_bar = Paragraph::new(format!(" {} ", mode_text)).style(mode_style(app.mode == Mode::Insert));
     frame.render_widget(status_bar, status_area);
-}
-
-fn border_style(focused: bool) -> Style {
-    if focused {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    }
 }

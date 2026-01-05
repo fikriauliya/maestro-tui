@@ -1,0 +1,453 @@
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::Rect;
+
+use crate::input::key_to_bytes;
+use crate::terminal::Terminal;
+
+#[derive(Default, PartialEq, Clone, Copy, Debug)]
+pub enum Pane {
+    #[default]
+    Left,
+    Right,
+}
+
+#[derive(Default, PartialEq, Clone, Copy, Debug)]
+pub enum Mode {
+    #[default]
+    Normal,
+    Insert,
+}
+
+/// Commands that can be executed by the application
+#[derive(Debug, PartialEq)]
+pub enum Command {
+    Quit,
+    NewTab,
+    SwitchTab(usize),
+    EnterInsertMode,
+    ExitInsertMode,
+    FocusPane(Pane),
+    TogglePane,
+    WriteToTerminal(Vec<u8>),
+}
+
+pub struct Tab {
+    pub focused: Pane,
+    pub left_term: Option<Terminal>,
+    pub right_term: Option<Terminal>,
+    last_left_size: (u16, u16),
+    last_right_size: (u16, u16),
+}
+
+impl Tab {
+    pub fn new() -> Self {
+        Self {
+            focused: Pane::Left,
+            left_term: None,
+            right_term: None,
+            last_left_size: (0, 0),
+            last_right_size: (0, 0),
+        }
+    }
+
+    /// Check if left terminal needs to be created
+    pub fn needs_left_terminal(&self, area: Rect) -> bool {
+        let inner = inner_area(area);
+        self.left_term.is_none() && inner.width > 0 && inner.height > 0
+    }
+
+    /// Check if right terminal needs to be created
+    pub fn needs_right_terminal(&self, area: Rect) -> bool {
+        let inner = inner_area(area);
+        self.right_term.is_none() && inner.width > 0 && inner.height > 0
+    }
+
+    /// Check if left terminal needs resize, returns new size if so
+    pub fn needs_left_resize(&self, area: Rect) -> Option<(u16, u16)> {
+        let inner = inner_area(area);
+        let size = (inner.width, inner.height);
+        if self.left_term.is_some() && self.last_left_size != size && size.0 > 0 && size.1 > 0 {
+            Some(size)
+        } else {
+            None
+        }
+    }
+
+    /// Check if right terminal needs resize, returns new size if so
+    pub fn needs_right_resize(&self, area: Rect) -> Option<(u16, u16)> {
+        let inner = inner_area(area);
+        let size = (inner.width, inner.height);
+        if self.right_term.is_some() && self.last_right_size != size && size.0 > 0 && size.1 > 0 {
+            Some(size)
+        } else {
+            None
+        }
+    }
+
+    /// Set the left terminal and track its size
+    pub fn set_left_terminal(&mut self, term: Terminal, area: Rect) {
+        let inner = inner_area(area);
+        self.left_term = Some(term);
+        self.last_left_size = (inner.width, inner.height);
+    }
+
+    /// Set the right terminal and track its size
+    pub fn set_right_terminal(&mut self, term: Terminal, area: Rect) {
+        let inner = inner_area(area);
+        self.right_term = Some(term);
+        self.last_right_size = (inner.width, inner.height);
+    }
+
+    /// Update left terminal size tracking after resize
+    pub fn update_left_size(&mut self, area: Rect) {
+        let inner = inner_area(area);
+        self.last_left_size = (inner.width, inner.height);
+    }
+
+    /// Update right terminal size tracking after resize
+    pub fn update_right_size(&mut self, area: Rect) {
+        let inner = inner_area(area);
+        self.last_right_size = (inner.width, inner.height);
+    }
+}
+
+impl Default for Tab {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct App {
+    pub tabs: Vec<Tab>,
+    pub active_tab: usize,
+    pub mode: Mode,
+}
+
+impl App {
+    pub fn new() -> Self {
+        Self {
+            tabs: vec![Tab::new()],
+            active_tab: 0,
+            mode: Mode::Normal,
+        }
+    }
+
+    pub fn current_tab(&self) -> &Tab {
+        &self.tabs[self.active_tab]
+    }
+
+    pub fn current_tab_mut(&mut self) -> &mut Tab {
+        &mut self.tabs[self.active_tab]
+    }
+
+    /// Execute a command, mutating app state as needed
+    pub fn execute(&mut self, cmd: Command) {
+        match cmd {
+            Command::Quit => {} // Handled by caller (breaks loop)
+            Command::NewTab => {
+                self.tabs.push(Tab::new());
+                self.active_tab = self.tabs.len() - 1;
+            }
+            Command::SwitchTab(idx) => {
+                if idx < self.tabs.len() {
+                    self.active_tab = idx;
+                }
+            }
+            Command::EnterInsertMode => {
+                self.mode = Mode::Insert;
+            }
+            Command::ExitInsertMode => {
+                self.mode = Mode::Normal;
+            }
+            Command::FocusPane(pane) => {
+                self.current_tab_mut().focused = pane;
+            }
+            Command::TogglePane => {
+                let tab = self.current_tab_mut();
+                tab.focused = match tab.focused {
+                    Pane::Left => Pane::Right,
+                    Pane::Right => Pane::Left,
+                };
+            }
+            Command::WriteToTerminal(bytes) => {
+                let tab = self.current_tab_mut();
+                let term = match tab.focused {
+                    Pane::Left => tab.left_term.as_mut(),
+                    Pane::Right => tab.right_term.as_mut(),
+                };
+                if let Some(term) = term {
+                    let _ = term.write(&bytes);
+                }
+            }
+        }
+    }
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Calculate inner area (inside border) from outer area
+pub fn inner_area(area: Rect) -> Rect {
+    Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    }
+}
+
+/// Handle a key event in Normal mode, returning a command if applicable
+pub fn handle_key_normal(key: &KeyEvent) -> Option<Command> {
+    match key.code {
+        KeyCode::Char('q') => Some(Command::Quit),
+        KeyCode::Char('t') => Some(Command::NewTab),
+        KeyCode::Char(c @ '1'..='9') => {
+            let tab_idx = (c as usize) - ('1' as usize);
+            Some(Command::SwitchTab(tab_idx))
+        }
+        KeyCode::Char('i') => Some(Command::EnterInsertMode),
+        KeyCode::Char('h') | KeyCode::Left => Some(Command::FocusPane(Pane::Left)),
+        KeyCode::Char('l') | KeyCode::Right => Some(Command::FocusPane(Pane::Right)),
+        KeyCode::Tab => Some(Command::TogglePane),
+        _ => None,
+    }
+}
+
+/// Handle a key event in Insert mode, returning a command if applicable
+pub fn handle_key_insert(key: &KeyEvent) -> Option<Command> {
+    if key.code == KeyCode::Esc {
+        return Some(Command::ExitInsertMode);
+    }
+
+    let bytes = key_to_bytes(key);
+    if !bytes.is_empty() {
+        Some(Command::WriteToTerminal(bytes))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyModifiers;
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    // inner_area tests
+    #[test]
+    fn test_inner_area_normal() {
+        let area = Rect::new(0, 0, 80, 24);
+        let inner = inner_area(area);
+        assert_eq!(inner.x, 1);
+        assert_eq!(inner.y, 1);
+        assert_eq!(inner.width, 78);
+        assert_eq!(inner.height, 22);
+    }
+
+    #[test]
+    fn test_inner_area_small() {
+        let area = Rect::new(5, 5, 4, 4);
+        let inner = inner_area(area);
+        assert_eq!(inner.x, 6);
+        assert_eq!(inner.y, 6);
+        assert_eq!(inner.width, 2);
+        assert_eq!(inner.height, 2);
+    }
+
+    #[test]
+    fn test_inner_area_too_small() {
+        let area = Rect::new(0, 0, 1, 1);
+        let inner = inner_area(area);
+        assert_eq!(inner.width, 0);
+        assert_eq!(inner.height, 0);
+    }
+
+    #[test]
+    fn test_inner_area_zero() {
+        let area = Rect::new(0, 0, 0, 0);
+        let inner = inner_area(area);
+        assert_eq!(inner.width, 0);
+        assert_eq!(inner.height, 0);
+    }
+
+    // handle_key_normal tests
+    #[test]
+    fn test_normal_quit() {
+        assert_eq!(handle_key_normal(&make_key(KeyCode::Char('q'))), Some(Command::Quit));
+    }
+
+    #[test]
+    fn test_normal_new_tab() {
+        assert_eq!(handle_key_normal(&make_key(KeyCode::Char('t'))), Some(Command::NewTab));
+    }
+
+    #[test]
+    fn test_normal_switch_tab() {
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Char('1'))),
+            Some(Command::SwitchTab(0))
+        );
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Char('5'))),
+            Some(Command::SwitchTab(4))
+        );
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Char('9'))),
+            Some(Command::SwitchTab(8))
+        );
+    }
+
+    #[test]
+    fn test_normal_insert_mode() {
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Char('i'))),
+            Some(Command::EnterInsertMode)
+        );
+    }
+
+    #[test]
+    fn test_normal_focus_pane() {
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Char('h'))),
+            Some(Command::FocusPane(Pane::Left))
+        );
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Left)),
+            Some(Command::FocusPane(Pane::Left))
+        );
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Char('l'))),
+            Some(Command::FocusPane(Pane::Right))
+        );
+        assert_eq!(
+            handle_key_normal(&make_key(KeyCode::Right)),
+            Some(Command::FocusPane(Pane::Right))
+        );
+    }
+
+    #[test]
+    fn test_normal_toggle_pane() {
+        assert_eq!(handle_key_normal(&make_key(KeyCode::Tab)), Some(Command::TogglePane));
+    }
+
+    #[test]
+    fn test_normal_unknown_key() {
+        assert_eq!(handle_key_normal(&make_key(KeyCode::Char('x'))), None);
+        assert_eq!(handle_key_normal(&make_key(KeyCode::F(1))), None);
+    }
+
+    // handle_key_insert tests
+    #[test]
+    fn test_insert_escape() {
+        assert_eq!(
+            handle_key_insert(&make_key(KeyCode::Esc)),
+            Some(Command::ExitInsertMode)
+        );
+    }
+
+    #[test]
+    fn test_insert_char() {
+        assert_eq!(
+            handle_key_insert(&make_key(KeyCode::Char('a'))),
+            Some(Command::WriteToTerminal(b"a".to_vec()))
+        );
+    }
+
+    #[test]
+    fn test_insert_enter() {
+        assert_eq!(
+            handle_key_insert(&make_key(KeyCode::Enter)),
+            Some(Command::WriteToTerminal(b"\r".to_vec()))
+        );
+    }
+
+    // App state tests
+    #[test]
+    fn test_app_new() {
+        let app = App::new();
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.active_tab, 0);
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn test_app_new_tab() {
+        let mut app = App::new();
+        app.execute(Command::NewTab);
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active_tab, 1);
+    }
+
+    #[test]
+    fn test_app_switch_tab() {
+        let mut app = App::new();
+        app.execute(Command::NewTab);
+        app.execute(Command::NewTab);
+        assert_eq!(app.active_tab, 2);
+
+        app.execute(Command::SwitchTab(0));
+        assert_eq!(app.active_tab, 0);
+
+        // Out of bounds - no change
+        app.execute(Command::SwitchTab(10));
+        assert_eq!(app.active_tab, 0);
+    }
+
+    #[test]
+    fn test_app_mode_switching() {
+        let mut app = App::new();
+        assert_eq!(app.mode, Mode::Normal);
+
+        app.execute(Command::EnterInsertMode);
+        assert_eq!(app.mode, Mode::Insert);
+
+        app.execute(Command::ExitInsertMode);
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn test_app_focus_pane() {
+        let mut app = App::new();
+        assert_eq!(app.current_tab().focused, Pane::Left);
+
+        app.execute(Command::FocusPane(Pane::Right));
+        assert_eq!(app.current_tab().focused, Pane::Right);
+
+        app.execute(Command::FocusPane(Pane::Left));
+        assert_eq!(app.current_tab().focused, Pane::Left);
+    }
+
+    #[test]
+    fn test_app_toggle_pane() {
+        let mut app = App::new();
+        assert_eq!(app.current_tab().focused, Pane::Left);
+
+        app.execute(Command::TogglePane);
+        assert_eq!(app.current_tab().focused, Pane::Right);
+
+        app.execute(Command::TogglePane);
+        assert_eq!(app.current_tab().focused, Pane::Left);
+    }
+
+    // Tab tests
+    #[test]
+    fn test_tab_needs_terminal() {
+        let tab = Tab::new();
+        let area = Rect::new(0, 0, 80, 24);
+        assert!(tab.needs_left_terminal(area));
+        assert!(tab.needs_right_terminal(area));
+    }
+
+    #[test]
+    fn test_tab_needs_terminal_zero_size() {
+        let tab = Tab::new();
+        let area = Rect::new(0, 0, 2, 2); // inner would be 0x0
+        assert!(!tab.needs_left_terminal(area));
+    }
+}
