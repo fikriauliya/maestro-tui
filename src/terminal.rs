@@ -15,6 +15,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 
+use crate::theme;
+
 #[cfg(test)]
 use crate::pty::PtyBackend;
 
@@ -265,50 +267,28 @@ impl Widget for TerminalWidget {
     }
 }
 
-// Flexoki dark theme terminal colors
-// Reference: https://stephango.com/flexoki
-mod flexoki {
-    use ratatui::style::Color;
-
-    // Base colors
-    pub const BLACK: Color = Color::Rgb(0x10, 0x0F, 0x0F);
-    pub const TX_3: Color = Color::Rgb(0x6F, 0x6E, 0x69);
-    pub const TX: Color = Color::Rgb(0xB7, 0xB5, 0xAC);
-    pub const PAPER: Color = Color::Rgb(0xCE, 0xCB, 0xC4);
-
-    // Accent colors (400 series for dark theme)
-    pub const RED: Color = Color::Rgb(0xD1, 0x4D, 0x41);
-    pub const ORANGE: Color = Color::Rgb(0xDA, 0x70, 0x2C);
-    pub const YELLOW: Color = Color::Rgb(0xD0, 0xA2, 0x15);
-    pub const GREEN: Color = Color::Rgb(0x87, 0x9A, 0x39);
-    pub const CYAN: Color = Color::Rgb(0x3A, 0xA9, 0x9F);
-    pub const BLUE: Color = Color::Rgb(0x43, 0x85, 0xBE);
-    pub const PURPLE: Color = Color::Rgb(0x8B, 0x7E, 0xC8);
-    pub const MAGENTA: Color = Color::Rgb(0xCE, 0x5D, 0x97);
-}
-
 pub fn convert_color(color: alacritty_terminal::vte::ansi::Color) -> Color {
     use alacritty_terminal::vte::ansi::Color as AC;
     use alacritty_terminal::vte::ansi::NamedColor;
 
     match color {
         AC::Named(named) => match named {
-            NamedColor::Black => flexoki::BLACK,
-            NamedColor::Red => flexoki::RED,
-            NamedColor::Green => flexoki::GREEN,
-            NamedColor::Yellow => flexoki::YELLOW,
-            NamedColor::Blue => flexoki::BLUE,
-            NamedColor::Magenta => flexoki::MAGENTA,
-            NamedColor::Cyan => flexoki::CYAN,
-            NamedColor::White => flexoki::TX,
-            NamedColor::BrightBlack => flexoki::TX_3,
-            NamedColor::BrightRed => flexoki::ORANGE,
-            NamedColor::BrightGreen => flexoki::GREEN,
-            NamedColor::BrightYellow => flexoki::YELLOW,
-            NamedColor::BrightBlue => flexoki::PURPLE,
-            NamedColor::BrightMagenta => flexoki::MAGENTA,
-            NamedColor::BrightCyan => flexoki::CYAN,
-            NamedColor::BrightWhite => flexoki::PAPER,
+            NamedColor::Black => theme::BLACK,
+            NamedColor::Red => theme::RED,
+            NamedColor::Green => theme::GREEN,
+            NamedColor::Yellow => theme::YELLOW,
+            NamedColor::Blue => theme::BLUE,
+            NamedColor::Magenta => theme::MAGENTA,
+            NamedColor::Cyan => theme::CYAN,
+            NamedColor::White => theme::TX,
+            NamedColor::BrightBlack => theme::TX_3,
+            NamedColor::BrightRed => theme::ORANGE,
+            NamedColor::BrightGreen => theme::GREEN,
+            NamedColor::BrightYellow => theme::YELLOW,
+            NamedColor::BrightBlue => theme::PURPLE,
+            NamedColor::BrightMagenta => theme::MAGENTA,
+            NamedColor::BrightCyan => theme::CYAN,
+            NamedColor::BrightWhite => theme::PAPER,
             _ => Color::Reset,
         },
         AC::Spec(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
@@ -374,9 +354,9 @@ mod tests {
         use alacritty_terminal::vte::ansi::Color as AC;
         use alacritty_terminal::vte::ansi::NamedColor;
 
-        assert_eq!(convert_color(AC::Named(NamedColor::Red)), flexoki::RED);
-        assert_eq!(convert_color(AC::Named(NamedColor::Green)), flexoki::GREEN);
-        assert_eq!(convert_color(AC::Named(NamedColor::BrightBlue)), flexoki::PURPLE);
+        assert_eq!(convert_color(AC::Named(NamedColor::Red)), theme::RED);
+        assert_eq!(convert_color(AC::Named(NamedColor::Green)), theme::GREEN);
+        assert_eq!(convert_color(AC::Named(NamedColor::BrightBlue)), theme::PURPLE);
     }
 
     #[test]

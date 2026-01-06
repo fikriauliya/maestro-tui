@@ -43,6 +43,7 @@ pub enum Command {
     Quit,
     SwitchTab(usize),
     FocusPane(Pane),
+    #[allow(dead_code)] // Used in tests
     TogglePane,
     WriteToTerminal(Vec<u8>),
     /// Update the control panel input text
@@ -86,6 +87,7 @@ impl Tab {
         }
     }
 
+    #[allow(dead_code)] // Used in tests
     pub fn control_panel() -> Self {
         Self {
             kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
@@ -212,6 +214,55 @@ impl Tab {
             }
         }
     }
+
+    /// Ensure left terminal exists and is properly sized
+    /// Creates a shell terminal if needed, or resizes if dimensions changed
+    pub fn ensure_left_terminal(&mut self, area: Rect) {
+        if self.needs_left_terminal(area) {
+            let inner = inner_area(area);
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+            let term_result = if let Some(cwd) = self.worktree_path() {
+                Terminal::with_command_in_dir(inner.width, inner.height, &shell, &[], cwd)
+            } else {
+                Terminal::new(inner.width, inner.height)
+            };
+            if let Ok(term) = term_result {
+                self.set_left_terminal(term, area);
+            }
+        } else if let Some((cols, rows)) = self.needs_left_resize(area)
+            && let Some(ref mut term) = self.left_term
+        {
+            term.resize(cols, rows);
+            self.update_left_size(area);
+        }
+    }
+
+    /// Ensure right terminal exists and is properly sized
+    /// Creates a Claude terminal if needed, or resizes if dimensions changed
+    pub fn ensure_right_terminal(&mut self, area: Rect) {
+        if self.needs_right_terminal(area) {
+            let inner = inner_area(area);
+            let prompt = self.worktree_prompt().unwrap_or("");
+            let args: Vec<&str> = if !prompt.is_empty() {
+                vec![prompt]
+            } else {
+                vec![]
+            };
+            let term_result = if let Some(cwd) = self.worktree_path() {
+                Terminal::with_command_in_dir(inner.width, inner.height, "claude", &args, cwd)
+            } else {
+                Terminal::with_command(inner.width, inner.height, "claude", &args)
+            };
+            if let Ok(term) = term_result {
+                self.set_right_terminal(term, area);
+            }
+        } else if let Some((cols, rows)) = self.needs_right_resize(area)
+            && let Some(ref mut term) = self.right_term
+        {
+            term.resize(cols, rows);
+            self.update_right_size(area);
+        }
+    }
 }
 
 impl Default for Tab {
@@ -313,6 +364,7 @@ impl App {
     }
 
     /// Get the control panel input if current tab is control panel
+    #[allow(dead_code)] // Used in tests
     pub fn get_control_panel_input(&self) -> Option<&str> {
         match &self.current_tab().kind {
             TabKind::ControlPanel { input, .. } => Some(input),

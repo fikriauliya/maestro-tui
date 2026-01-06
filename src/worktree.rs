@@ -10,6 +10,32 @@ use std::process::Command;
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::Result;
 
+/// Generate a merge commit message using Claude CLI
+///
+/// This function calls the `claude -p` command to generate a commit message
+/// based on the diff. It's kept separate from git operations for testability.
+pub fn generate_merge_message(branch: &str, main_branch: &str, diff: &str) -> Result<String> {
+    let prompt = format!(
+        "Generate a concise git merge commit message for merging branch '{}' into '{}'. \
+         The message should summarize the changes. Here's the diff:\n\n{}",
+        branch, main_branch, diff
+    );
+
+    let output = Command::new("claude")
+        .args(["-p", &prompt])
+        .output()
+        .wrap_err("Failed to execute claude")?;
+
+    if !output.status.success() {
+        return Err(eyre!(
+            "claude failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 /// Represents a git worktree
 #[derive(Debug, Clone, PartialEq)]
 pub struct Worktree {
@@ -160,11 +186,13 @@ impl<G: GitBackend> WorktreeManager<G> {
     }
 
     /// Get the repository root path
+    #[allow(dead_code)] // Used in tests
     pub fn repo_root(&self) -> &Path {
         &self.repo_root
     }
 
     /// Get the repository name
+    #[allow(dead_code)] // Used in tests
     pub fn repo_name(&self) -> &str {
         &self.repo_name
     }
@@ -344,12 +372,24 @@ impl<G: GitBackend> WorktreeManager<G> {
         Ok(warnings)
     }
 
+    /// Get the diff between main and a branch
+    ///
+    /// Returns the diff output as a string, useful for generating commit messages.
+    pub fn get_branch_diff(&self, branch: &str) -> Result<String> {
+        let main_branch = self.get_main_branch()?;
+        let diff_output = self
+            .git
+            .execute(&["diff", &format!("{}...{}", main_branch, branch)])
+            .wrap_err("Failed to get diff")?;
+
+        Ok(String::from_utf8_lossy(&diff_output.stdout).to_string())
+    }
+
     /// Merge a worktree branch into main
     ///
-    /// If `use_claude` is true, uses `claude -p` to generate the commit message.
+    /// If `commit_message` is provided, uses it for the merge commit.
     /// Otherwise, uses git's default merge behavior.
-    pub fn merge(&self, branch: &str, use_claude: bool) -> Result<()> {
-        // Get the main branch name
+    pub fn merge(&self, branch: &str, commit_message: Option<&str>) -> Result<()> {
         let main_branch = self.get_main_branch()?;
 
         // Checkout main branch
@@ -365,63 +405,23 @@ impl<G: GitBackend> WorktreeManager<G> {
             ));
         }
 
-        if use_claude {
-            // Get the diff for context
-            let diff_output = self
+        // Perform merge with or without custom message
+        let output = match commit_message {
+            Some(msg) => self
                 .git
-                .execute(&["diff", &format!("{}...{}", main_branch, branch)])
-                .wrap_err("Failed to get diff")?;
-
-            let diff = String::from_utf8_lossy(&diff_output.stdout);
-
-            // Generate commit message using claude
-            let prompt = format!(
-                "Generate a concise git merge commit message for merging branch '{}' into '{}'. \
-                 The message should summarize the changes. Here's the diff:\n\n{}",
-                branch, main_branch, diff
-            );
-
-            let claude_output = Command::new("claude")
-                .args(["-p", &prompt])
-                .output()
-                .wrap_err("Failed to execute claude")?;
-
-            if !claude_output.status.success() {
-                return Err(eyre!(
-                    "claude failed: {}",
-                    String::from_utf8_lossy(&claude_output.stderr).trim()
-                ));
-            }
-
-            let commit_msg = String::from_utf8_lossy(&claude_output.stdout)
-                .trim()
-                .to_string();
-
-            // Merge with custom message
-            let output = self
-                .git
-                .execute(&["merge", branch, "-m", &commit_msg])
-                .wrap_err("Failed to merge")?;
-
-            if !output.status.success() {
-                return Err(eyre!(
-                    "git merge failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ));
-            }
-        } else {
-            // Standard merge
-            let output = self
+                .execute(&["merge", branch, "-m", msg])
+                .wrap_err("Failed to merge")?,
+            None => self
                 .git
                 .execute(&["merge", branch])
-                .wrap_err("Failed to merge")?;
+                .wrap_err("Failed to merge")?,
+        };
 
-            if !output.status.success() {
-                return Err(eyre!(
-                    "git merge failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ));
-            }
+        if !output.status.success() {
+            return Err(eyre!(
+                "git merge failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
         }
 
         Ok(())
@@ -472,7 +472,7 @@ impl<G: GitBackend> WorktreeManager<G> {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let parts: Vec<&str> = stdout.trim().split_whitespace().collect();
+        let parts: Vec<&str> = stdout.split_whitespace().collect();
 
         if parts.len() == 2 {
             let behind = parts[0].parse().unwrap_or(0);

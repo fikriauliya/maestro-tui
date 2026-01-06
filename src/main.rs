@@ -2,7 +2,7 @@ mod app;
 mod input;
 mod pty;
 mod terminal;
-mod ui;
+mod theme;
 mod worktree;
 
 use std::time::Duration;
@@ -20,9 +20,8 @@ use ratatui::{
 use crossterm::event::KeyCode;
 
 use crate::app::{handle_key, handle_dialog_key, inner_area, App, Command, Dialog, Pane, Tab, TabKind};
-use crate::terminal::Terminal;
-use crate::ui::{active_tab_style, border_style, inactive_tab_style};
-use crate::worktree::{slugify_prompt, WorktreeManager, WorktreeStatus};
+use crate::theme::{active_tab_style, border_style, inactive_tab_style};
+use crate::worktree::{generate_merge_message, slugify_prompt, WorktreeManager, WorktreeStatus};
 
 /// Load output from `bd ready` command
 fn load_bd_ready() -> Vec<String> {
@@ -50,12 +49,12 @@ fn main() -> color_eyre::Result<()> {
 
     // Tab 0 is always the control panel (already created by App::new())
     // Load existing worktrees as additional tabs (no stored prompt for existing worktrees)
-    if let Ok(wt_manager) = WorktreeManager::new() {
-        if let Ok(worktrees) = wt_manager.list() {
-            for wt in worktrees {
-                let branch = wt.branch.unwrap_or_else(|| "detached".to_string());
-                app.tabs.push(Tab::with_worktree(wt.path, branch, String::new()));
-            }
+    if let Ok(wt_manager) = WorktreeManager::new()
+        && let Ok(worktrees) = wt_manager.list()
+    {
+        for wt in worktrees {
+            let branch = wt.branch.unwrap_or_else(|| "detached".to_string());
+            app.tabs.push(Tab::with_worktree(wt.path, branch, String::new()));
         }
     }
 
@@ -76,10 +75,215 @@ fn main() -> color_eyre::Result<()> {
     result
 }
 
+/// Result of handling a key event
+enum KeyAction {
+    /// Continue to next event
+    Continue,
+    /// Quit the application
+    Quit,
+}
+
+/// Handle dialog key events
+fn process_dialog_key(
+    app: &mut App,
+    key: &crossterm::event::KeyEvent,
+    wt_manager: &Option<WorktreeManager>,
+) {
+    let Some(cmd) = handle_dialog_key(key) else {
+        return;
+    };
+
+    if !matches!(cmd, Command::DialogConfirm) {
+        app.execute(cmd);
+        return;
+    }
+
+    // Handle confirmation based on dialog type
+    match &app.dialog {
+        Dialog::ConfirmDelete { branch, .. } => {
+            let branch = branch.clone();
+            let tab_idx = app.active_tab;
+            if let Some(manager) = wt_manager {
+                let _ = manager.remove(&branch, true);
+                app.remove_tab(tab_idx);
+            }
+            app.dialog = Dialog::None;
+        }
+        Dialog::UncommittedChanges { .. } => {
+            app.dialog = Dialog::None;
+        }
+        Dialog::None => {}
+    }
+}
+
+/// Handle control panel key events
+fn process_control_panel_key(
+    app: &mut App,
+    key: &crossterm::event::KeyEvent,
+    wt_manager: &Option<WorktreeManager>,
+) -> KeyAction {
+    use crossterm::event::KeyModifiers;
+
+    // Check for Ctrl/Alt shortcuts first
+    if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
+        // Special: Ctrl+b reloads bd ready
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
+            app.execute(Command::ReloadBdReady(load_bd_ready()));
+            return KeyAction::Continue;
+        }
+
+        if let Some(cmd) = handle_key(key) {
+            if matches!(cmd, Command::Quit) {
+                return KeyAction::Quit;
+            }
+            app.execute(cmd);
+            return KeyAction::Continue;
+        }
+    }
+
+    // Handle text input
+    match key.code {
+        KeyCode::Enter => {
+            if let Some(prompt) = app.take_control_panel_input()
+                && let Some(manager) = wt_manager
+            {
+                let branch = slugify_prompt(&prompt);
+                if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
+                    app.add_worktree_tab(wt.path.clone(), branch, prompt);
+                }
+            }
+        }
+        KeyCode::Backspace => app.execute(Command::DeleteControlPanelChar),
+        KeyCode::Char(c) => app.execute(Command::UpdateControlPanelInput(c)),
+        _ => {}
+    }
+
+    KeyAction::Continue
+}
+
+/// Handle terminal tab key events
+fn process_terminal_key(
+    app: &mut App,
+    key: &crossterm::event::KeyEvent,
+    wt_manager: &Option<WorktreeManager>,
+) -> KeyAction {
+    let Some(cmd) = handle_key(key) else {
+        return KeyAction::Continue;
+    };
+
+    match cmd {
+        Command::Quit => KeyAction::Quit,
+        Command::MergeBranch => {
+            handle_merge_branch(app, wt_manager);
+            KeyAction::Continue
+        }
+        Command::DeleteWorktree => {
+            handle_delete_worktree(app, wt_manager);
+            KeyAction::Continue
+        }
+        cmd => {
+            app.execute(cmd);
+            KeyAction::Continue
+        }
+    }
+}
+
+/// Merge current worktree branch into main
+fn handle_merge_branch(app: &mut App, wt_manager: &Option<WorktreeManager>) {
+    let Some(manager) = wt_manager else {
+        return;
+    };
+    let Some(branch) = app.current_tab().branch().map(String::from) else {
+        return;
+    };
+
+    // Generate commit message using Claude
+    let commit_msg = manager
+        .get_branch_diff(&branch)
+        .ok()
+        .and_then(|diff| generate_merge_message(&branch, "main", &diff).ok());
+
+    let tab_idx = app.active_tab;
+    if manager.merge(&branch, commit_msg.as_deref()).is_ok() {
+        let _ = manager.remove(&branch, true);
+        app.remove_tab(tab_idx);
+    }
+}
+
+/// Show delete worktree dialog
+fn handle_delete_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
+    use crate::worktree::RemoveWarning;
+
+    let Some(manager) = wt_manager else {
+        return;
+    };
+    let Some(branch) = app.current_tab().branch().map(String::from) else {
+        return;
+    };
+
+    let warnings = manager.remove(&branch, false).unwrap_or_default();
+    let has_uncommitted = warnings.iter().any(|w| matches!(w, RemoveWarning::UncommittedChanges));
+    let has_unmerged = warnings.iter().any(|w| matches!(w, RemoveWarning::NotMerged { .. }));
+
+    if has_uncommitted {
+        app.dialog = Dialog::UncommittedChanges { branch };
+    } else {
+        app.dialog = Dialog::ConfirmDelete { branch, unmerged: has_unmerged };
+    }
+}
+
+/// Handle mouse click events, returns true if should quit
+fn process_mouse_click(
+    app: &mut App,
+    mouse: &crossterm::event::MouseEvent,
+    tab_area: Rect,
+    quit_button_x: u16,
+    main_area: Rect,
+) -> bool {
+    if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+        return false;
+    }
+
+    // Tab bar clicks
+    if mouse.row == tab_area.y {
+        if mouse.column >= quit_button_x {
+            return true; // Quit
+        }
+
+        // Tab selection
+        if mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
+            let mut x = 0u16;
+            for (i, tab) in app.tabs.iter().enumerate() {
+                let label = match &tab.kind {
+                    TabKind::ControlPanel { .. } => "0 Control".to_string(),
+                    TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
+                };
+                let tab_width = (label.len() + 2 + 1) as u16;
+                if mouse.column >= x && mouse.column < x + tab_width {
+                    app.execute(Command::SwitchTab(i));
+                    break;
+                }
+                x += tab_width;
+            }
+        }
+        return false;
+    }
+
+    // Pane focus clicks (only for terminal tabs)
+    if !app.current_tab().is_control_panel()
+        && mouse.row >= main_area.y
+        && mouse.row < main_area.y + main_area.height
+    {
+        let mid_x = main_area.x + main_area.width / 2;
+        let pane = if mouse.column < mid_x { Pane::Left } else { Pane::Right };
+        app.execute(Command::FocusPane(pane));
+    }
+
+    false
+}
+
 fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>) -> color_eyre::Result<()> {
-    // Store worktree manager for creating new worktrees
     let wt_manager = WorktreeManager::new().ok();
-    // Track tab area, quit button position, and main area for click detection
     let mut tab_area = Rect::default();
     let mut quit_button_x = 0u16;
     let mut main_area = Rect::default();
@@ -89,185 +293,34 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
             (tab_area, quit_button_x, main_area) = render(app, frame);
         })?;
 
-        if event::poll(Duration::from_millis(16))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    if key.kind != KeyEventKind::Press {
-                        continue;
-                    }
+        if !event::poll(Duration::from_millis(16))? {
+            continue;
+        }
 
-                    // Handle dialog input first if a dialog is shown
-                    if !matches!(app.dialog, Dialog::None) {
-                        if let Some(cmd) = handle_dialog_key(&key) {
-                            if matches!(cmd, Command::DialogConfirm) {
-                                // Handle confirmation based on dialog type
-                                match &app.dialog {
-                                    Dialog::ConfirmDelete { branch, .. } => {
-                                        let branch = branch.clone();
-                                        let tab_idx = app.active_tab;
-                                        if let Some(ref manager) = wt_manager {
-                                            // Force remove since user confirmed
-                                            let _ = manager.remove(&branch, true);
-                                            app.remove_tab(tab_idx);
-                                        }
-                                        app.dialog = Dialog::None;
-                                    }
-                                    Dialog::UncommittedChanges { .. } => {
-                                        // Just close the dialog, user needs to review
-                                        app.dialog = Dialog::None;
-                                    }
-                                    Dialog::None => {}
-                                }
-                            } else {
-                                app.execute(cmd);
-                            }
-                        }
-                        continue;
-                    }
-
-                    // Handle input differently based on tab type
-                    let is_control_panel = app.current_tab().is_control_panel();
-
-                    if is_control_panel {
-                        // Control panel: check Ctrl/Alt shortcuts first, then handle text input
-                        // Check shortcuts for any key with Ctrl or Alt modifier
-                        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                            || key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
-                        {
-                            // Special handling for Ctrl+b: reload bd ready
-                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                                && key.code == KeyCode::Char('b')
-                            {
-                                app.execute(Command::ReloadBdReady(load_bd_ready()));
-                                continue;
-                            }
-                            if let Some(cmd) = handle_key(&key) {
-                                if matches!(cmd, Command::Quit) {
-                                    return Ok(());
-                                }
-                                app.execute(cmd);
-                                continue;
-                            }
-                        }
-
-                        // Handle text input
-                        match key.code {
-                            KeyCode::Enter => {
-                                // Submit prompt and create worktree tab
-                                if let Some(prompt) = app.take_control_panel_input() {
-                                    if let Some(ref manager) = wt_manager {
-                                        let branch = slugify_prompt(&prompt);
-                                        if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
-                                            app.add_worktree_tab(wt.path.clone(), branch, prompt);
-                                        }
-                                    }
-                                }
-                            }
-                            KeyCode::Backspace => {
-                                app.execute(Command::DeleteControlPanelChar);
-                            }
-                            KeyCode::Char(c) => {
-                                app.execute(Command::UpdateControlPanelInput(c));
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        // Terminal tab: passthrough with Ctrl shortcuts
-                        if let Some(cmd) = handle_key(&key) {
-                            if matches!(cmd, Command::Quit) {
-                                return Ok(());
-                            }
-                            if matches!(cmd, Command::MergeBranch) {
-                                // Merge current worktree branch into main
-                                if let Some(ref manager) = wt_manager {
-                                    let tab_idx = app.active_tab;
-                                    if let Some(branch) = app.current_tab().branch().map(String::from) {
-                                        // Use claude -p for commit message
-                                        if manager.merge(&branch, true).is_ok() {
-                                            // Remove the worktree folder (force since we just merged)
-                                            let _ = manager.remove(&branch, true);
-                                            // Remove the tab (this also frees terminal resources)
-                                            app.remove_tab(tab_idx);
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            if matches!(cmd, Command::DeleteWorktree) {
-                                // Check worktree status and show appropriate dialog
-                                if let Some(ref manager) = wt_manager {
-                                    if let Some(branch) = app.current_tab().branch().map(String::from) {
-                                        // Check safety conditions
-                                        let warnings = manager.remove(&branch, false).unwrap_or_default();
-                                        let has_uncommitted = warnings.iter().any(|w| {
-                                            matches!(w, crate::worktree::RemoveWarning::UncommittedChanges)
-                                        });
-                                        let has_unmerged = warnings.iter().any(|w| {
-                                            matches!(w, crate::worktree::RemoveWarning::NotMerged { .. })
-                                        });
-
-                                        if has_uncommitted {
-                                            // Cannot delete - show error dialog
-                                            app.dialog = Dialog::UncommittedChanges { branch };
-                                        } else {
-                                            // Can delete - show confirmation (with warning if unmerged)
-                                            app.dialog = Dialog::ConfirmDelete { branch, unmerged: has_unmerged };
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            app.execute(cmd);
-                        }
-                    }
+        match event::read()? {
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                // Dialog takes priority
+                if !matches!(app.dialog, Dialog::None) {
+                    process_dialog_key(app, &key, &wt_manager);
+                    continue;
                 }
-                Event::Mouse(mouse) => {
-                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-                        // Handle mouse clicks on tab bar
-                        if mouse.row == tab_area.y {
-                            // Check if quit button was clicked
-                            if mouse.column >= quit_button_x {
-                                return Ok(());
-                            }
-                            // Check if a tab was clicked
-                            if mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
-                                // Calculate which tab was clicked
-                                let mut x = 0u16;
-                                for (i, tab) in app.tabs.iter().enumerate() {
-                                    // Tab width: " label " + 1 space separator
-                                    let label = match &tab.kind {
-                                        TabKind::ControlPanel { .. } => "0 Control".to_string(),
-                                        TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
-                                    };
-                                    let tab_width = (label.len() + 2 + 1) as u16; // " label " + separator
-                                    if mouse.column >= x && mouse.column < x + tab_width {
-                                        app.execute(Command::SwitchTab(i));
-                                        break;
-                                    }
-                                    x += tab_width;
-                                }
-                            }
-                        }
-                        // Handle mouse clicks on panes (only for terminal tabs)
-                        else if !app.current_tab().is_control_panel()
-                            && mouse.row >= main_area.y
-                            && mouse.row < main_area.y + main_area.height
-                        {
-                            // Left half = left pane, right half = right pane
-                            let mid_x = main_area.x + main_area.width / 2;
-                            if mouse.column < mid_x {
-                                app.execute(Command::FocusPane(Pane::Left));
-                            } else {
-                                app.execute(Command::FocusPane(Pane::Right));
-                            }
-                        }
-                    }
+
+                let action = if app.current_tab().is_control_panel() {
+                    process_control_panel_key(app, &key, &wt_manager)
+                } else {
+                    process_terminal_key(app, &key, &wt_manager)
+                };
+
+                if matches!(action, KeyAction::Quit) {
+                    return Ok(());
                 }
-                Event::Resize(_, _) => {
-                    // Terminal resize is handled automatically by ratatui
-                }
-                _ => {}
             }
+            Event::Mouse(mouse) => {
+                if process_mouse_click(app, &mouse, tab_area, quit_button_x, main_area) {
+                    return Ok(());
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -304,8 +357,7 @@ fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     let quit_text = "[X]";
     let quit_x = tab_area.width.saturating_sub(quit_text.len() as u16);
     let quit_area = Rect::new(tab_area.x + quit_x, tab_area.y, quit_text.len() as u16, 1);
-    let quit_style = ratatui::style::Style::default()
-        .fg(ratatui::style::Color::Rgb(0xD1, 0x4D, 0x41)); // Flexoki red
+    let quit_style = ratatui::style::Style::default().fg(theme::RED);
     frame.render_widget(Paragraph::new(quit_text).style(quit_style), quit_area);
 
     // Check if current tab is control panel
@@ -365,20 +417,20 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rec
 
         // Dirty indicator
         if status.is_dirty {
-            indicators.push(Span::styled(" ●", Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41)))); // Flexoki red
+            indicators.push(Span::styled(" ●", Style::default().fg(theme::RED)));
         }
 
         // Ahead/behind indicators
         if status.ahead > 0 {
             indicators.push(Span::styled(
                 format!(" ↑{}", status.ahead),
-                Style::default().fg(Color::Rgb(0x87, 0x9A, 0x39)), // Flexoki green
+                Style::default().fg(theme::GREEN),
             ));
         }
         if status.behind > 0 {
             indicators.push(Span::styled(
                 format!(" ↓{}", status.behind),
-                Style::default().fg(Color::Rgb(0xDA, 0x70, 0x2C)), // Flexoki orange
+                Style::default().fg(theme::ORANGE),
             ));
         }
 
@@ -392,11 +444,11 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rec
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::raw("  "),
-        Span::styled("●", Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41))),
+        Span::styled("●", Style::default().fg(theme::RED)),
         Span::raw(" dirty  "),
-        Span::styled("↑", Style::default().fg(Color::Rgb(0x87, 0x9A, 0x39))),
+        Span::styled("↑", Style::default().fg(theme::GREEN)),
         Span::raw(" ahead  "),
-        Span::styled("↓", Style::default().fg(Color::Rgb(0xDA, 0x70, 0x2C))),
+        Span::styled("↓", Style::default().fg(theme::ORANGE)),
         Span::raw(" behind"),
     ]));
 
@@ -424,10 +476,10 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rec
             // Display issue lines with some styling
             let styled_line = if trimmed.starts_with("[P0]") || trimmed.contains("[P0]") {
                 // Critical priority - red
-                Span::styled(format!("    {}", trimmed), Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41)))
+                Span::styled(format!("    {}", trimmed), Style::default().fg(theme::RED))
             } else if trimmed.starts_with("[P1]") || trimmed.contains("[P1]") {
                 // High priority - orange
-                Span::styled(format!("    {}", trimmed), Style::default().fg(Color::Rgb(0xDA, 0x70, 0x2C)))
+                Span::styled(format!("    {}", trimmed), Style::default().fg(theme::ORANGE))
             } else {
                 // Normal priority
                 Span::raw(format!("    {}", trimmed))
@@ -461,50 +513,10 @@ fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: ratatui::lay
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(main_area);
 
-    // Handle terminal creation and resize for current tab
+    // Ensure terminals exist and are properly sized
     let tab = app.current_tab_mut();
-
-    if tab.needs_left_terminal(left) {
-        let inner = inner_area(left);
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-        let term_result = if let Some(cwd) = tab.worktree_path() {
-            Terminal::with_command_in_dir(inner.width, inner.height, &shell, &[], cwd)
-        } else {
-            Terminal::new(inner.width, inner.height)
-        };
-        if let Ok(term) = term_result {
-            tab.set_left_terminal(term, left);
-        }
-    } else if let Some((cols, rows)) = tab.needs_left_resize(left) {
-        if let Some(ref mut term) = tab.left_term {
-            term.resize(cols, rows);
-            tab.update_left_size(left);
-        }
-    }
-
-    if tab.needs_right_terminal(right) {
-        let inner = inner_area(right);
-        // Pass prompt as positional argument to Claude (keeps interactive mode)
-        let prompt = tab.worktree_prompt().unwrap_or("");
-        let args: Vec<&str> = if !prompt.is_empty() {
-            vec![prompt]
-        } else {
-            vec![]
-        };
-        let term_result = if let Some(cwd) = tab.worktree_path() {
-            Terminal::with_command_in_dir(inner.width, inner.height, "claude", &args, cwd)
-        } else {
-            Terminal::with_command(inner.width, inner.height, "claude", &args)
-        };
-        if let Ok(term) = term_result {
-            tab.set_right_terminal(term, right);
-        }
-    } else if let Some((cols, rows)) = tab.needs_right_resize(right) {
-        if let Some(ref mut term) = tab.right_term {
-            term.resize(cols, rows);
-            tab.update_right_size(right);
-        }
-    }
+    tab.ensure_left_terminal(left);
+    tab.ensure_right_terminal(right);
 
     let tab = app.current_tab();
     let left_block = Block::bordered()
@@ -528,15 +540,12 @@ fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: ratatui::lay
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect) {
-    use ratatui::style::{Color, Style};
+    use ratatui::style::Style;
     use ratatui::text::{Line, Span};
 
     // Zellij-style: <key> action  <key> action ...
-    let key_style = Style::default()
-        .fg(Color::Rgb(0x1C, 0x1B, 0x1A)) // Dark text (Flexoki black)
-        .bg(Color::Rgb(0x87, 0x9A, 0x39)); // Green background (Flexoki green)
-    let action_style = Style::default()
-        .fg(Color::Rgb(0xCE, 0xCE, 0xC6)); // Light text (Flexoki tx-2)
+    let key_style = Style::default().fg(theme::BG).bg(theme::GREEN);
+    let action_style = Style::default().fg(theme::PAPER);
 
     let shortcuts = vec![
         ("Alt+0-9", "Tabs"),
@@ -627,7 +636,7 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
 
     let block = Block::bordered()
         .title(title)
-        .border_style(Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41))); // Flexoki red
+        .border_style(Style::default().fg(theme::RED));
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, dialog_area);
