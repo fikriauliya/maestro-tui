@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use alacritty_terminal::event::{Event, EventListener};
-use alacritty_terminal::grid::Scroll;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::cell::Flags as CellFlags;
 use alacritty_terminal::term::{test::TermSize, Config};
 use alacritty_terminal::vte::ansi::Processor;
@@ -77,7 +77,11 @@ impl Terminal {
             .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
 
         let size = TermSize::new(cols as usize, rows as usize);
-        let term = Term::new(Config::default(), &size, Listener);
+        let config = Config {
+            scrolling_history: 1000, // Limit scrollback to prevent performance issues
+            ..Config::default()
+        };
+        let term = Term::new(config, &size, Listener);
         let term = Arc::new(Mutex::new(term));
 
         let mut reader = pty_pair
@@ -135,7 +139,19 @@ impl Terminal {
     }
 
     pub fn scroll(&mut self, lines: i32) {
-        self.term.lock().unwrap().scroll_display(Scroll::Delta(lines));
+        let mut term = self.term.lock().unwrap();
+        let current_offset = term.grid().display_offset();
+        let history_size = term.grid().history_size();
+
+        // Skip scroll if already at boundary
+        if lines > 0 && current_offset >= history_size {
+            return; // Already at top of scrollback
+        }
+        if lines < 0 && current_offset == 0 {
+            return; // Already at bottom
+        }
+
+        term.scroll_display(Scroll::Delta(lines));
     }
 
     pub fn widget(&self) -> TerminalWidget {

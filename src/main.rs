@@ -166,18 +166,6 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                             }
                         }
                     }
-                    // Handle mouse wheel scrolling on terminal panes
-                    if matches!(mouse.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown) {
-                        if !app.current_tab().is_control_panel()
-                            && mouse.row >= main_area.y
-                            && mouse.row < main_area.y + main_area.height
-                        {
-                            // ScrollUp = wheel up = show older content = positive delta (increases display_offset)
-                            // ScrollDown = wheel down = show newer content = negative delta (decreases display_offset)
-                            let lines = if mouse.kind == MouseEventKind::ScrollUp { 3 } else { -3 };
-                            app.current_tab_mut().scroll_focused(lines);
-                        }
-                    }
                 }
                 Event::Resize(_, _) => {
                     // Terminal resize is handled automatically by ratatui

@@ -34,6 +34,10 @@ pub enum Command {
     UpdateControlPanelInput(char),
     /// Delete last character from control panel input
     DeleteControlPanelChar,
+    /// Scroll up (show older content) - half page
+    ScrollUp,
+    /// Scroll down (show newer content) - half page
+    ScrollDown,
 }
 
 pub struct Tab {
@@ -245,6 +249,14 @@ impl App {
                     input.pop();
                 }
             }
+            Command::ScrollUp => {
+                // Scroll up half a page (show older content)
+                self.current_tab_mut().scroll_focused(15);
+            }
+            Command::ScrollDown => {
+                // Scroll down half a page (show newer content)
+                self.current_tab_mut().scroll_focused(-15);
+            }
         }
     }
 
@@ -319,6 +331,10 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('h') => return Some(Command::FocusPane(Pane::Left)),
             // Ctrl+l focuses right pane
             KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
+            // Ctrl+u scrolls up (vim-style half page up)
+            KeyCode::Char('u') => return Some(Command::ScrollUp),
+            // Ctrl+d scrolls down (vim-style half page down)
+            KeyCode::Char('d') => return Some(Command::ScrollDown),
             // Ctrl+x quits the application
             KeyCode::Char('x') => return Some(Command::Quit),
             // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
