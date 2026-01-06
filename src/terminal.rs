@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use alacritty_terminal::event::{Event, EventListener};
+use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::term::cell::Flags as CellFlags;
 use alacritty_terminal::term::{test::TermSize, Config};
 use alacritty_terminal::vte::ansi::Processor;
@@ -131,6 +132,10 @@ impl Terminal {
         // Resize the terminal emulator state
         let size = TermSize::new(cols as usize, rows as usize);
         self.term.lock().unwrap().resize(size);
+    }
+
+    pub fn scroll(&mut self, lines: i32) {
+        self.term.lock().unwrap().scroll_display(Scroll::Delta(lines));
     }
 
     pub fn widget(&self) -> TerminalWidget {

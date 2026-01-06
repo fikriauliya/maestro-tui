@@ -159,6 +159,22 @@ impl Tab {
         let inner = inner_area(area);
         self.last_right_size = (inner.width, inner.height);
     }
+
+    /// Scroll the focused terminal by the given number of lines (positive = up, negative = down)
+    pub fn scroll_focused(&mut self, lines: i32) {
+        match self.focused {
+            Pane::Left => {
+                if let Some(ref mut term) = self.left_term {
+                    term.scroll(lines);
+                }
+            }
+            Pane::Right => {
+                if let Some(ref mut term) = self.right_term {
+                    term.scroll(lines);
+                }
+            }
+        }
+    }
 }
 
 impl Default for Tab {
