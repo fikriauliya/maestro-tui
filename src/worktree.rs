@@ -32,6 +32,56 @@ pub enum RemoveWarning {
     UncommittedChanges,
 }
 
+/// Generate a git-friendly branch name from a prompt
+///
+/// Takes the first few words, lowercases, and replaces non-alphanumeric with dashes.
+/// Example: "Add user authentication" -> "add-user-authentication"
+pub fn slugify_prompt(prompt: &str) -> String {
+    let words: Vec<&str> = prompt
+        .split_whitespace()
+        .take(5) // Take first 5 words max
+        .collect();
+
+    let slug: String = words
+        .join("-")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+
+    // Remove consecutive dashes and trim dashes from ends
+    let mut result = String::new();
+    let mut prev_dash = true; // Start true to skip leading dashes
+    for c in slug.chars() {
+        if c == '-' {
+            if !prev_dash {
+                result.push(c);
+                prev_dash = true;
+            }
+        } else {
+            result.push(c);
+            prev_dash = false;
+        }
+    }
+
+    // Trim trailing dash
+    if result.ends_with('-') {
+        result.pop();
+    }
+
+    // Ensure non-empty
+    if result.is_empty() {
+        result = "worktree".to_string();
+    }
+
+    result
+}
+
 /// Trait for git command execution, enabling dependency injection for testing
 pub trait GitBackend: Send {
     fn execute(&self, args: &[&str]) -> std::io::Result<std::process::Output>;
@@ -702,5 +752,36 @@ branch refs/heads/feature
             .unwrap_err()
             .to_string()
             .contains("No worktree found"));
+    }
+
+    #[test]
+    fn test_slugify_prompt_basic() {
+        assert_eq!(slugify_prompt("Add user authentication"), "add-user-authentication");
+        assert_eq!(slugify_prompt("Fix bug in login"), "fix-bug-in-login");
+    }
+
+    #[test]
+    fn test_slugify_prompt_special_chars() {
+        assert_eq!(slugify_prompt("Add feature: auth!"), "add-feature-auth");
+        assert_eq!(slugify_prompt("Fix #123 bug"), "fix-123-bug");
+    }
+
+    #[test]
+    fn test_slugify_prompt_truncates_words() {
+        assert_eq!(
+            slugify_prompt("one two three four five six seven"),
+            "one-two-three-four-five"
+        );
+    }
+
+    #[test]
+    fn test_slugify_prompt_empty() {
+        assert_eq!(slugify_prompt(""), "worktree");
+        assert_eq!(slugify_prompt("   "), "worktree");
+    }
+
+    #[test]
+    fn test_slugify_prompt_consecutive_special() {
+        assert_eq!(slugify_prompt("test--multiple---dashes"), "test-multiple-dashes");
     }
 }

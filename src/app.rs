@@ -20,6 +20,15 @@ pub enum Mode {
     Insert,
 }
 
+/// The kind of tab - control panel or worktree terminal
+#[derive(Debug, Clone, PartialEq)]
+pub enum TabKind {
+    /// Control panel with text input for creating new worktrees
+    ControlPanel { input: String },
+    /// Worktree tab with dual terminal panes
+    Worktree { path: PathBuf, branch: String },
+}
+
 /// Commands that can be executed by the application
 #[derive(Debug, PartialEq)]
 pub enum Command {
@@ -31,14 +40,19 @@ pub enum Command {
     FocusPane(Pane),
     TogglePane,
     WriteToTerminal(Vec<u8>),
+    /// Update the control panel input text
+    UpdateControlPanelInput(char),
+    /// Delete last character from control panel input
+    DeleteControlPanelChar,
+    /// Submit the control panel prompt to create a new worktree tab
+    SubmitPrompt,
 }
 
 pub struct Tab {
+    pub kind: TabKind,
     pub focused: Pane,
     pub left_term: Option<Terminal>,
     pub right_term: Option<Terminal>,
-    pub worktree_path: Option<PathBuf>,
-    pub branch: Option<String>,
     last_left_size: (u16, u16),
     last_right_size: (u16, u16),
 }
@@ -46,11 +60,21 @@ pub struct Tab {
 impl Tab {
     pub fn new() -> Self {
         Self {
+            kind: TabKind::ControlPanel { input: String::new() },
             focused: Pane::Left,
             left_term: None,
             right_term: None,
-            worktree_path: None,
-            branch: None,
+            last_left_size: (0, 0),
+            last_right_size: (0, 0),
+        }
+    }
+
+    pub fn control_panel() -> Self {
+        Self {
+            kind: TabKind::ControlPanel { input: String::new() },
+            focused: Pane::Left,
+            left_term: None,
+            right_term: None,
             last_left_size: (0, 0),
             last_right_size: (0, 0),
         }
@@ -58,13 +82,33 @@ impl Tab {
 
     pub fn with_worktree(path: PathBuf, branch: String) -> Self {
         Self {
+            kind: TabKind::Worktree { path, branch },
             focused: Pane::Left,
             left_term: None,
             right_term: None,
-            worktree_path: Some(path),
-            branch: Some(branch),
             last_left_size: (0, 0),
             last_right_size: (0, 0),
+        }
+    }
+
+    /// Check if this is a control panel tab
+    pub fn is_control_panel(&self) -> bool {
+        matches!(self.kind, TabKind::ControlPanel { .. })
+    }
+
+    /// Get worktree path if this is a worktree tab
+    pub fn worktree_path(&self) -> Option<&PathBuf> {
+        match &self.kind {
+            TabKind::Worktree { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Get branch name if this is a worktree tab
+    pub fn branch(&self) -> Option<&str> {
+        match &self.kind {
+            TabKind::Worktree { branch, .. } => Some(branch),
+            _ => None,
         }
     }
 
@@ -197,7 +241,52 @@ impl App {
                     let _ = term.write(&bytes);
                 }
             }
+            Command::UpdateControlPanelInput(c) => {
+                if let TabKind::ControlPanel { ref mut input } = self.current_tab_mut().kind {
+                    input.push(c);
+                }
+            }
+            Command::DeleteControlPanelChar => {
+                if let TabKind::ControlPanel { ref mut input } = self.current_tab_mut().kind {
+                    input.pop();
+                }
+            }
+            Command::SubmitPrompt => {
+                // This will be handled in main.rs since it needs WorktreeManager
+                // Here we just extract the prompt and clear the input
+            }
         }
+    }
+
+    /// Get the control panel input if current tab is control panel
+    pub fn get_control_panel_input(&self) -> Option<&str> {
+        match &self.current_tab().kind {
+            TabKind::ControlPanel { input } => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Take the control panel input (clears it) - used when submitting
+    pub fn take_control_panel_input(&mut self) -> Option<String> {
+        match &mut self.current_tab_mut().kind {
+            TabKind::ControlPanel { input } => {
+                let prompt = std::mem::take(input);
+                if prompt.is_empty() {
+                    None
+                } else {
+                    Some(prompt)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Add a new worktree tab and switch to it, returns the new tab index
+    pub fn add_worktree_tab(&mut self, path: PathBuf, branch: String) -> usize {
+        self.tabs.push(Tab::with_worktree(path, branch));
+        let new_idx = self.tabs.len() - 1;
+        self.active_tab = new_idx;
+        new_idx
     }
 }
 
