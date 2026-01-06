@@ -303,6 +303,22 @@ impl App {
         self.active_tab = new_idx;
         new_idx
     }
+
+    /// Remove a tab by index, returns true if removed
+    /// Cannot remove tab 0 (control panel) or if only one tab remains
+    pub fn remove_tab(&mut self, idx: usize) -> bool {
+        if idx == 0 || idx >= self.tabs.len() || self.tabs.len() <= 1 {
+            return false;
+        }
+        self.tabs.remove(idx);
+        // Adjust active tab if needed
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        } else if self.active_tab > idx {
+            self.active_tab -= 1;
+        }
+        true
+    }
 }
 
 impl Default for App {
@@ -508,6 +524,32 @@ mod tests {
         assert_eq!(app.tabs.len(), 2);
         assert_eq!(idx, 1);
         assert_eq!(app.active_tab, 1);
+    }
+
+    #[test]
+    fn test_app_remove_tab() {
+        let mut app = App::new();
+        app.add_worktree_tab(PathBuf::from("/tmp/test1"), "branch1".to_string(), String::new());
+        app.add_worktree_tab(PathBuf::from("/tmp/test2"), "branch2".to_string(), String::new());
+        assert_eq!(app.tabs.len(), 3);
+        assert_eq!(app.active_tab, 2);
+
+        // Remove current tab (tab 2)
+        assert!(app.remove_tab(2));
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active_tab, 1); // Should adjust to last tab
+
+        // Cannot remove tab 0 (control panel)
+        assert!(!app.remove_tab(0));
+        assert_eq!(app.tabs.len(), 2);
+
+        // Remove tab 1
+        assert!(app.remove_tab(1));
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.active_tab, 0);
+
+        // Cannot remove last tab
+        assert!(!app.remove_tab(0));
     }
 
     #[test]

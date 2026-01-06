@@ -124,8 +124,15 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                             if matches!(cmd, Command::MergeBranch) {
                                 // Merge current worktree branch into main
                                 if let Some(ref manager) = wt_manager {
-                                    if let Some(branch) = app.current_tab().branch() {
-                                        let _ = manager.merge(branch, false);
+                                    let tab_idx = app.active_tab;
+                                    if let Some(branch) = app.current_tab().branch().map(String::from) {
+                                        // Use claude -p for commit message
+                                        if manager.merge(&branch, true).is_ok() {
+                                            // Remove the worktree folder (force since we just merged)
+                                            let _ = manager.remove(&branch, true);
+                                            // Remove the tab (this also frees terminal resources)
+                                            app.remove_tab(tab_idx);
+                                        }
                                     }
                                 }
                                 continue;
