@@ -38,6 +38,8 @@ pub enum Command {
     ScrollUp,
     /// Scroll down (show newer content) - half page
     ScrollDown,
+    /// Merge current worktree branch into main
+    MergeBranch,
 }
 
 pub struct Tab {
@@ -265,6 +267,9 @@ impl App {
                 // Scroll down half a page (show newer content)
                 self.current_tab_mut().scroll_focused(-15);
             }
+            Command::MergeBranch => {
+                // Handled in main event loop (needs WorktreeManager)
+            }
         }
     }
 
@@ -343,6 +348,8 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('u') => return Some(Command::ScrollUp),
             // Ctrl+d scrolls down (vim-style half page down)
             KeyCode::Char('d') => return Some(Command::ScrollDown),
+            // Ctrl+m merges current worktree branch into main
+            KeyCode::Char('m') => return Some(Command::MergeBranch),
             // Ctrl+x quits the application
             KeyCode::Char('x') => return Some(Command::Quit),
             // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
@@ -450,6 +457,14 @@ mod tests {
         assert_eq!(
             handle_key(&make_ctrl_key(KeyCode::Char('l'))),
             Some(Command::FocusPane(Pane::Right))
+        );
+    }
+
+    #[test]
+    fn test_ctrl_merge_branch() {
+        assert_eq!(
+            handle_key(&make_ctrl_key(KeyCode::Char('m'))),
+            Some(Command::MergeBranch)
         );
     }
 

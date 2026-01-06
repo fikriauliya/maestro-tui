@@ -121,6 +121,15 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                             if matches!(cmd, Command::Quit) {
                                 return Ok(());
                             }
+                            if matches!(cmd, Command::MergeBranch) {
+                                // Merge current worktree branch into main
+                                if let Some(ref manager) = wt_manager {
+                                    if let Some(branch) = app.current_tab().branch() {
+                                        let _ = manager.merge(branch, false);
+                                    }
+                                }
+                                continue;
+                            }
                             app.execute(cmd);
                         }
                     }
@@ -362,6 +371,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
         ("Alt+0-9", "Tabs"),
         ("Ctrl+h", "Left"),
         ("Ctrl+l", "Right"),
+        ("Ctrl+m", "Merge"),
         ("Ctrl+x", "Quit"),
     ];
 
