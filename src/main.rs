@@ -59,12 +59,13 @@ fn main() -> color_eyre::Result<()> {
 fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>) -> color_eyre::Result<()> {
     // Store worktree manager for creating new worktrees
     let wt_manager = WorktreeManager::new().ok();
-    // Track tab area for click detection
+    // Track tab area and quit button position for click detection
     let mut tab_area = Rect::default();
+    let mut quit_button_x = 0u16;
 
     loop {
         terminal.draw(|frame| {
-            tab_area = render(app, frame);
+            (tab_area, quit_button_x) = render(app, frame);
         })?;
 
         if event::poll(Duration::from_millis(16))? {
@@ -123,8 +124,13 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                 }
                 Event::Mouse(mouse) => {
                     // Handle mouse clicks on tab bar
-                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-                        if mouse.row == tab_area.y && mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
+                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) && mouse.row == tab_area.y {
+                        // Check if quit button was clicked
+                        if mouse.column >= quit_button_x {
+                            return Ok(());
+                        }
+                        // Check if a tab was clicked
+                        if mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
                             // Calculate which tab was clicked
                             let mut x = 0u16;
                             for (i, _tab) in app.tabs.iter().enumerate() {
@@ -148,13 +154,14 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
     }
 }
 
-fn render(app: &mut App, frame: &mut Frame) -> Rect {
+/// Returns (tab_area, quit_button_x) for click detection
+fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16) {
     // Split into tab bar and main area (no status bar needed without modes)
     let [tab_area, main_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0)])
             .areas(frame.area());
 
-    // Render tab bar
+    // Render tab bar with quit button on the right
     let mut tab_spans = Vec::new();
     for (i, tab) in app.tabs.iter().enumerate() {
         let label = match &tab.kind {
@@ -172,6 +179,14 @@ fn render(app: &mut App, frame: &mut Frame) -> Rect {
     let tab_bar = ratatui::text::Line::from(tab_spans);
     frame.render_widget(Paragraph::new(tab_bar), tab_area);
 
+    // Render quit button [X] on the right side
+    let quit_text = "[X]";
+    let quit_x = tab_area.width.saturating_sub(quit_text.len() as u16);
+    let quit_area = Rect::new(tab_area.x + quit_x, tab_area.y, quit_text.len() as u16, 1);
+    let quit_style = ratatui::style::Style::default()
+        .fg(ratatui::style::Color::Rgb(0xD1, 0x4D, 0x41)); // Flexoki red
+    frame.render_widget(Paragraph::new(quit_text).style(quit_style), quit_area);
+
     // Check if current tab is control panel
     if app.current_tab().is_control_panel() {
         render_control_panel(app, frame, main_area);
@@ -179,7 +194,7 @@ fn render(app: &mut App, frame: &mut Frame) -> Rect {
         render_terminal_tab(app, frame, main_area);
     }
 
-    tab_area
+    (tab_area, quit_x)
 }
 
 fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
