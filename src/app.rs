@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 
 use crate::input::key_to_bytes;
 use crate::terminal::Terminal;
+use crate::terminal_pair::TerminalPair;
 
 #[derive(Default, PartialEq, Clone, Copy, Debug)]
 pub enum Pane {
@@ -69,10 +70,7 @@ pub enum Command {
 pub struct Tab {
     pub kind: TabKind,
     pub focused: Pane,
-    pub left_term: Option<Terminal>,
-    pub right_term: Option<Terminal>,
-    last_left_size: (u16, u16),
-    last_right_size: (u16, u16),
+    pub pair: TerminalPair,
 }
 
 impl Tab {
@@ -80,10 +78,7 @@ impl Tab {
         Self {
             kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
             focused: Pane::Left,
-            left_term: None,
-            right_term: None,
-            last_left_size: (0, 0),
-            last_right_size: (0, 0),
+            pair: TerminalPair::new(),
         }
     }
 
@@ -92,10 +87,7 @@ impl Tab {
         Self {
             kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
             focused: Pane::Left,
-            left_term: None,
-            right_term: None,
-            last_left_size: (0, 0),
-            last_right_size: (0, 0),
+            pair: TerminalPair::new(),
         }
     }
 
@@ -103,10 +95,7 @@ impl Tab {
         Self {
             kind: TabKind::Worktree { path, branch, prompt },
             focused: Pane::Left,
-            left_term: None,
-            right_term: None,
-            last_left_size: (0, 0),
-            last_right_size: (0, 0),
+            pair: TerminalPair::new(),
         }
     }
 
@@ -139,86 +128,15 @@ impl Tab {
         }
     }
 
-    /// Check if left terminal needs to be created
-    pub fn needs_left_terminal(&self, area: Rect) -> bool {
-        let inner = inner_area(area);
-        self.left_term.is_none() && inner.width > 0 && inner.height > 0
-    }
-
-    /// Check if right terminal needs to be created
-    pub fn needs_right_terminal(&self, area: Rect) -> bool {
-        let inner = inner_area(area);
-        self.right_term.is_none() && inner.width > 0 && inner.height > 0
-    }
-
-    /// Check if left terminal needs resize, returns new size if so
-    pub fn needs_left_resize(&self, area: Rect) -> Option<(u16, u16)> {
-        let inner = inner_area(area);
-        let size = (inner.width, inner.height);
-        if self.left_term.is_some() && self.last_left_size != size && size.0 > 0 && size.1 > 0 {
-            Some(size)
-        } else {
-            None
-        }
-    }
-
-    /// Check if right terminal needs resize, returns new size if so
-    pub fn needs_right_resize(&self, area: Rect) -> Option<(u16, u16)> {
-        let inner = inner_area(area);
-        let size = (inner.width, inner.height);
-        if self.right_term.is_some() && self.last_right_size != size && size.0 > 0 && size.1 > 0 {
-            Some(size)
-        } else {
-            None
-        }
-    }
-
-    /// Set the left terminal and track its size
-    pub fn set_left_terminal(&mut self, term: Terminal, area: Rect) {
-        let inner = inner_area(area);
-        self.left_term = Some(term);
-        self.last_left_size = (inner.width, inner.height);
-    }
-
-    /// Set the right terminal and track its size
-    pub fn set_right_terminal(&mut self, term: Terminal, area: Rect) {
-        let inner = inner_area(area);
-        self.right_term = Some(term);
-        self.last_right_size = (inner.width, inner.height);
-    }
-
-    /// Update left terminal size tracking after resize
-    pub fn update_left_size(&mut self, area: Rect) {
-        let inner = inner_area(area);
-        self.last_left_size = (inner.width, inner.height);
-    }
-
-    /// Update right terminal size tracking after resize
-    pub fn update_right_size(&mut self, area: Rect) {
-        let inner = inner_area(area);
-        self.last_right_size = (inner.width, inner.height);
-    }
-
     /// Scroll the focused terminal by the given number of lines (positive = up, negative = down)
     pub fn scroll_focused(&mut self, lines: i32) {
-        match self.focused {
-            Pane::Left => {
-                if let Some(ref mut term) = self.left_term {
-                    term.scroll(lines);
-                }
-            }
-            Pane::Right => {
-                if let Some(ref mut term) = self.right_term {
-                    term.scroll(lines);
-                }
-            }
-        }
+        self.pair.scroll(self.focused, lines);
     }
 
-    /// Ensure left terminal exists and is properly sized
-    /// Creates a shell terminal if needed, or resizes if dimensions changed
+    /// Ensure left terminal exists and is properly sized.
+    /// Creates a shell terminal if needed, or resizes if dimensions changed.
     pub fn ensure_left_terminal(&mut self, area: Rect) {
-        if self.needs_left_terminal(area) {
+        if self.pair.needs_left(area) {
             let inner = inner_area(area);
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
             let term_result = if let Some(cwd) = self.worktree_path() {
@@ -227,20 +145,20 @@ impl Tab {
                 Terminal::new(inner.width, inner.height)
             };
             if let Ok(term) = term_result {
-                self.set_left_terminal(term, area);
+                self.pair.set_left(term, area);
             }
-        } else if let Some((cols, rows)) = self.needs_left_resize(area)
-            && let Some(ref mut term) = self.left_term
+        } else if let Some((cols, rows)) = self.pair.needs_left_resize(area)
+            && let Some(term) = self.pair.get_mut(Pane::Left)
         {
             term.resize(cols, rows);
-            self.update_left_size(area);
+            self.pair.update_left_size(area);
         }
     }
 
-    /// Ensure right terminal exists and is properly sized
-    /// Creates a Claude terminal if needed, or resizes if dimensions changed
+    /// Ensure right terminal exists and is properly sized.
+    /// Creates a Claude terminal if needed, or resizes if dimensions changed.
     pub fn ensure_right_terminal(&mut self, area: Rect) {
-        if self.needs_right_terminal(area) {
+        if self.pair.needs_right(area) {
             let inner = inner_area(area);
             let prompt = self.worktree_prompt().unwrap_or("");
             let args: Vec<&str> = if !prompt.is_empty() {
@@ -254,13 +172,13 @@ impl Tab {
                 Terminal::with_command(inner.width, inner.height, "claude", &args)
             };
             if let Ok(term) = term_result {
-                self.set_right_terminal(term, area);
+                self.pair.set_right(term, area);
             }
-        } else if let Some((cols, rows)) = self.needs_right_resize(area)
-            && let Some(ref mut term) = self.right_term
+        } else if let Some((cols, rows)) = self.pair.needs_right_resize(area)
+            && let Some(term) = self.pair.get_mut(Pane::Right)
         {
             term.resize(cols, rows);
-            self.update_right_size(area);
+            self.pair.update_right_size(area);
         }
     }
 }
@@ -317,11 +235,7 @@ impl App {
             }
             Command::WriteToTerminal(bytes) => {
                 let tab = self.current_tab_mut();
-                let term = match tab.focused {
-                    Pane::Left => tab.left_term.as_mut(),
-                    Pane::Right => tab.right_term.as_mut(),
-                };
-                if let Some(term) = term {
+                if let Some(term) = tab.pair.get_mut(tab.focused) {
                     let _ = term.write(&bytes);
                 }
             }
@@ -776,15 +690,15 @@ mod tests {
     fn test_tab_needs_terminal() {
         let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string(), String::new());
         let area = Rect::new(0, 0, 80, 24);
-        assert!(tab.needs_left_terminal(area));
-        assert!(tab.needs_right_terminal(area));
+        assert!(tab.pair.needs_left(area));
+        assert!(tab.pair.needs_right(area));
     }
 
     #[test]
     fn test_tab_needs_terminal_zero_size() {
         let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string(), String::new());
         let area = Rect::new(0, 0, 2, 2); // inner would be 0x0
-        assert!(!tab.needs_left_terminal(area));
+        assert!(!tab.pair.needs_left(area));
     }
 
     #[test]
