@@ -158,10 +158,13 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
 
 /// Returns (tab_area, quit_button_x) for click detection
 fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16) {
-    // Split into tab bar and main area (no status bar needed without modes)
-    let [tab_area, main_area] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(0)])
+    // Split into tab bar, main area, and status bar
+    let [tab_area, main_area, status_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
             .areas(frame.area());
+
+    // Render status bar with keyboard shortcuts
+    render_status_bar(frame, status_area);
 
     // Render tab bar with quit button on the right
     let mut tab_spans = Vec::new();
@@ -315,4 +318,32 @@ fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: ratatui::lay
     if let Some(ref term) = tab.right_term {
         frame.render_widget(term.widget(), inner_area(right));
     }
+}
+
+fn render_status_bar(frame: &mut Frame, area: Rect) {
+    use ratatui::style::{Color, Style};
+    use ratatui::text::{Line, Span};
+
+    // Zellij-style: <key> action  <key> action ...
+    let key_style = Style::default()
+        .fg(Color::Rgb(0x1C, 0x1B, 0x1A)) // Dark text (Flexoki black)
+        .bg(Color::Rgb(0x87, 0x9A, 0x39)); // Green background (Flexoki green)
+    let action_style = Style::default()
+        .fg(Color::Rgb(0xCE, 0xCE, 0xC6)); // Light text (Flexoki tx-2)
+
+    let shortcuts = vec![
+        ("Alt+0-9", "Tabs"),
+        ("Ctrl+h", "Left"),
+        ("Ctrl+l", "Right"),
+        ("Ctrl+x", "Quit"),
+    ];
+
+    let mut spans = Vec::new();
+    for (key, action) in shortcuts {
+        spans.push(Span::styled(format!(" {} ", key), key_style));
+        spans.push(Span::styled(format!(" {} ", action), action_style));
+        spans.push(Span::raw(" "));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
