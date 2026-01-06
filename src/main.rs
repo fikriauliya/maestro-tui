@@ -19,7 +19,7 @@ use ratatui::{
 
 use crossterm::event::KeyCode;
 
-use crate::app::{handle_key, inner_area, App, Command, Pane, Tab, TabKind};
+use crate::app::{handle_key, handle_dialog_key, inner_area, App, Command, Dialog, Pane, Tab, TabKind};
 use crate::terminal::Terminal;
 use crate::ui::{active_tab_style, border_style, inactive_tab_style};
 use crate::worktree::{slugify_prompt, WorktreeManager};
@@ -73,6 +73,35 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
             match event::read()? {
                 Event::Key(key) => {
                     if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+
+                    // Handle dialog input first if a dialog is shown
+                    if !matches!(app.dialog, Dialog::None) {
+                        if let Some(cmd) = handle_dialog_key(&key) {
+                            if matches!(cmd, Command::DialogConfirm) {
+                                // Handle confirmation based on dialog type
+                                match &app.dialog {
+                                    Dialog::ConfirmDelete { branch, .. } => {
+                                        let branch = branch.clone();
+                                        let tab_idx = app.active_tab;
+                                        if let Some(ref manager) = wt_manager {
+                                            // Force remove since user confirmed
+                                            let _ = manager.remove(&branch, true);
+                                            app.remove_tab(tab_idx);
+                                        }
+                                        app.dialog = Dialog::None;
+                                    }
+                                    Dialog::UncommittedChanges { .. } => {
+                                        // Just close the dialog, user needs to review
+                                        app.dialog = Dialog::None;
+                                    }
+                                    Dialog::None => {}
+                                }
+                            } else {
+                                app.execute(cmd);
+                            }
+                        }
                         continue;
                     }
 
@@ -132,6 +161,30 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                                             let _ = manager.remove(&branch, true);
                                             // Remove the tab (this also frees terminal resources)
                                             app.remove_tab(tab_idx);
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+                            if matches!(cmd, Command::DeleteWorktree) {
+                                // Check worktree status and show appropriate dialog
+                                if let Some(ref manager) = wt_manager {
+                                    if let Some(branch) = app.current_tab().branch().map(String::from) {
+                                        // Check safety conditions
+                                        let warnings = manager.remove(&branch, false).unwrap_or_default();
+                                        let has_uncommitted = warnings.iter().any(|w| {
+                                            matches!(w, crate::worktree::RemoveWarning::UncommittedChanges)
+                                        });
+                                        let has_unmerged = warnings.iter().any(|w| {
+                                            matches!(w, crate::worktree::RemoveWarning::NotMerged { .. })
+                                        });
+
+                                        if has_uncommitted {
+                                            // Cannot delete - show error dialog
+                                            app.dialog = Dialog::UncommittedChanges { branch };
+                                        } else {
+                                            // Can delete - show confirmation (with warning if unmerged)
+                                            app.dialog = Dialog::ConfirmDelete { branch, unmerged: has_unmerged };
                                         }
                                     }
                                 }
@@ -233,6 +286,11 @@ fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
         render_control_panel(app, frame, main_area);
     } else {
         render_terminal_tab(app, frame, main_area);
+    }
+
+    // Render dialog on top if shown
+    if !matches!(app.dialog, Dialog::None) {
+        render_dialog(&app.dialog, frame, frame.area());
     }
 
     (tab_area, quit_x, main_area)
@@ -379,6 +437,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
         ("Ctrl+h", "Left"),
         ("Ctrl+l", "Right"),
         ("Ctrl+m", "Merge"),
+        ("Ctrl+w", "Delete"),
         ("Ctrl+x", "Quit"),
     ];
 
@@ -390,4 +449,80 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::Clear;
+
+    // Calculate dialog size and position (centered)
+    let dialog_width = 60u16.min(area.width.saturating_sub(4));
+    let dialog_height = 9u16;
+    let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+    let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+    let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+    // Clear the area behind the dialog
+    frame.render_widget(Clear, dialog_area);
+
+    let (title, lines) = match dialog {
+        Dialog::ConfirmDelete { branch, unmerged } => {
+            let mut content = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  Delete worktree "),
+                    Span::styled(branch, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("?"),
+                ]),
+            ];
+            if *unmerged {
+                content.push(Line::from(""));
+                content.push(Line::from(Span::styled(
+                    "  ⚠ WARNING: Branch has unmerged commits!",
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+            content.push(Line::from(""));
+            content.push(Line::from(vec![
+                Span::raw("  Press "),
+                Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw(" to confirm, "),
+                Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw(" to cancel"),
+            ]));
+            ("Delete Worktree", content)
+        }
+        Dialog::UncommittedChanges { branch } => {
+            let content = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  Cannot delete "),
+                    Span::styled(branch, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  ✗ Worktree has uncommitted changes!",
+                    Style::default().fg(Color::Red),
+                )),
+                Line::from(""),
+                Line::from("  Please commit or stash your changes first."),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  Press "),
+                    Span::styled("any key", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to close"),
+                ]),
+            ];
+            ("Cannot Delete", content)
+        }
+        Dialog::None => return,
+    };
+
+    let block = Block::bordered()
+        .title(title)
+        .border_style(Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41))); // Flexoki red
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, dialog_area);
 }

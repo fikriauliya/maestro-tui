@@ -13,6 +13,17 @@ pub enum Pane {
     Right,
 }
 
+/// Dialog state for confirmations and warnings
+#[derive(Debug, Clone, PartialEq)]
+pub enum Dialog {
+    /// No dialog shown
+    None,
+    /// Confirm delete worktree (branch name, has unmerged commits)
+    ConfirmDelete { branch: String, unmerged: bool },
+    /// Cannot delete: has uncommitted changes
+    UncommittedChanges { branch: String },
+}
+
 /// The kind of tab - control panel or worktree terminal
 #[derive(Debug, Clone, PartialEq)]
 pub enum TabKind {
@@ -40,6 +51,12 @@ pub enum Command {
     ScrollDown,
     /// Merge current worktree branch into main
     MergeBranch,
+    /// Request to delete current worktree (triggers dialog)
+    DeleteWorktree,
+    /// Confirm dialog action (yes)
+    DialogConfirm,
+    /// Cancel dialog action (no)
+    DialogCancel,
 }
 
 pub struct Tab {
@@ -200,6 +217,7 @@ impl Default for Tab {
 pub struct App {
     pub tabs: Vec<Tab>,
     pub active_tab: usize,
+    pub dialog: Dialog,
 }
 
 impl App {
@@ -207,6 +225,7 @@ impl App {
         Self {
             tabs: vec![Tab::new()],
             active_tab: 0,
+            dialog: Dialog::None,
         }
     }
 
@@ -269,6 +288,15 @@ impl App {
             }
             Command::MergeBranch => {
                 // Handled in main event loop (needs WorktreeManager)
+            }
+            Command::DeleteWorktree => {
+                // Handled in main event loop (needs WorktreeManager)
+            }
+            Command::DialogConfirm => {
+                // Handled in main event loop
+            }
+            Command::DialogCancel => {
+                self.dialog = Dialog::None;
             }
         }
     }
@@ -366,6 +394,8 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('d') => return Some(Command::ScrollDown),
             // Ctrl+m merges current worktree branch into main
             KeyCode::Char('m') => return Some(Command::MergeBranch),
+            // Ctrl+w deletes current worktree (with confirmation)
+            KeyCode::Char('w') => return Some(Command::DeleteWorktree),
             // Ctrl+x quits the application
             KeyCode::Char('x') => return Some(Command::Quit),
             // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
@@ -387,6 +417,18 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
         Some(Command::WriteToTerminal(bytes))
     } else {
         None
+    }
+}
+
+/// Handle a key event when a dialog is shown
+/// Returns Some(command) if the key was handled, None otherwise
+pub fn handle_dialog_key(key: &KeyEvent) -> Option<Command> {
+    match key.code {
+        // Y or Enter confirms
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => Some(Command::DialogConfirm),
+        // N or Escape cancels
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Some(Command::DialogCancel),
+        _ => None,
     }
 }
 
@@ -481,6 +523,46 @@ mod tests {
         assert_eq!(
             handle_key(&make_ctrl_key(KeyCode::Char('m'))),
             Some(Command::MergeBranch)
+        );
+    }
+
+    #[test]
+    fn test_ctrl_delete_worktree() {
+        assert_eq!(
+            handle_key(&make_ctrl_key(KeyCode::Char('w'))),
+            Some(Command::DeleteWorktree)
+        );
+    }
+
+    #[test]
+    fn test_dialog_key_confirm() {
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('y'))),
+            Some(Command::DialogConfirm)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('Y'))),
+            Some(Command::DialogConfirm)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Enter)),
+            Some(Command::DialogConfirm)
+        );
+    }
+
+    #[test]
+    fn test_dialog_key_cancel() {
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('n'))),
+            Some(Command::DialogCancel)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('N'))),
+            Some(Command::DialogCancel)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Esc)),
+            Some(Command::DialogCancel)
         );
     }
 
