@@ -25,6 +25,7 @@ pub enum TabKind {
 /// Commands that can be executed by the application
 #[derive(Debug, PartialEq)]
 pub enum Command {
+    Quit,
     SwitchTab(usize),
     FocusPane(Pane),
     TogglePane,
@@ -190,6 +191,9 @@ impl App {
     /// Execute a command, mutating app state as needed
     pub fn execute(&mut self, cmd: Command) {
         match cmd {
+            Command::Quit => {
+                // Handled in main event loop
+            }
             Command::SwitchTab(idx) => {
                 if idx < self.tabs.len() {
                     self.active_tab = idx;
@@ -292,6 +296,8 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('h') => return Some(Command::FocusPane(Pane::Left)),
             // Ctrl+l focuses right pane
             KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
+            // Ctrl+x quits the application
+            KeyCode::Char('x') => return Some(Command::Quit),
             // Ctrl+Tab toggles panes
             KeyCode::Tab => return Some(Command::TogglePane),
             // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)

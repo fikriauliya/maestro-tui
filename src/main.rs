@@ -82,6 +82,9 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                         // Check Ctrl shortcuts for any key (not just Char)
                         if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
                             if let Some(cmd) = handle_key(&key) {
+                                if matches!(cmd, Command::Quit) {
+                                    return Ok(());
+                                }
                                 app.execute(cmd);
                                 continue;
                             }
@@ -111,6 +114,9 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                     } else {
                         // Terminal tab: passthrough with Ctrl shortcuts
                         if let Some(cmd) = handle_key(&key) {
+                            if matches!(cmd, Command::Quit) {
+                                return Ok(());
+                            }
                             app.execute(cmd);
                         }
                     }
