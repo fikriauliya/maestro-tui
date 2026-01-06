@@ -135,9 +135,13 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                         if mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
                             // Calculate which tab was clicked
                             let mut x = 0u16;
-                            for (i, _tab) in app.tabs.iter().enumerate() {
-                                // Each tab takes 3 chars (" N ") plus 1 space separator
-                                let tab_width = 4;
+                            for (i, tab) in app.tabs.iter().enumerate() {
+                                // Tab width: " label " + 1 space separator
+                                let label = match &tab.kind {
+                                    TabKind::ControlPanel { .. } => "0 Control".to_string(),
+                                    TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
+                                };
+                                let tab_width = (label.len() + 2 + 1) as u16; // " label " + separator
                                 if mouse.column >= x && mouse.column < x + tab_width {
                                     app.execute(Command::SwitchTab(i));
                                     break;
@@ -170,8 +174,8 @@ fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16) {
     let mut tab_spans = Vec::new();
     for (i, tab) in app.tabs.iter().enumerate() {
         let label = match &tab.kind {
-            TabKind::ControlPanel { .. } => "0".to_string(),
-            TabKind::Worktree { .. } => format!("{}", i),
+            TabKind::ControlPanel { .. } => "0 Control".to_string(),
+            TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
         };
         let style = if i == app.active_tab {
             active_tab_style()
