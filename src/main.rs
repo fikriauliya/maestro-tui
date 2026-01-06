@@ -24,9 +24,29 @@ use crate::terminal::Terminal;
 use crate::ui::{active_tab_style, border_style, inactive_tab_style};
 use crate::worktree::{slugify_prompt, WorktreeManager, WorktreeStatus};
 
+/// Load output from `bd ready` command
+fn load_bd_ready() -> Vec<String> {
+    std::process::Command::new("bd")
+        .arg("ready")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| s.lines().map(String::from).collect())
+        .unwrap_or_default()
+}
+
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let mut app = App::new();
+
+    // Load bd ready output at startup
+    app.execute(Command::ReloadBdReady(load_bd_ready()));
 
     // Tab 0 is always the control panel (already created by App::new())
     // Load existing worktrees as additional tabs (no stored prompt for existing worktrees)
@@ -114,6 +134,13 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                         if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
                             || key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
                         {
+                            // Special handling for Ctrl+b: reload bd ready
+                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                && key.code == KeyCode::Char('b')
+                            {
+                                app.execute(Command::ReloadBdReady(load_bd_ready()));
+                                continue;
+                            }
                             if let Some(cmd) = handle_key(&key) {
                                 if matches!(cmd, Command::Quit) {
                                     return Ok(());
@@ -361,7 +388,7 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rec
         lines.push(Line::from(spans));
     }
 
-    // Legend
+    // Legend for worktrees
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::raw("  "),
@@ -373,12 +400,48 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rec
         Span::raw(" behind"),
     ]));
 
+    // Add bd ready section
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Ready Issues ", Style::default().fg(Color::Cyan)),
+        Span::styled("[Ctrl+b to reload]", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    let bd_ready_output = app.get_bd_ready_output();
+    if bd_ready_output.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "    (no bd ready output)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        // Skip the header line if present (starts with emoji or "Ready work")
+        for line in bd_ready_output.iter() {
+            let trimmed = line.trim();
+            // Skip empty lines and the header line
+            if trimmed.is_empty() || trimmed.starts_with("📋") {
+                continue;
+            }
+            // Display issue lines with some styling
+            let styled_line = if trimmed.starts_with("[P0]") || trimmed.contains("[P0]") {
+                // Critical priority - red
+                Span::styled(format!("    {}", trimmed), Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41)))
+            } else if trimmed.starts_with("[P1]") || trimmed.contains("[P1]") {
+                // High priority - orange
+                Span::styled(format!("    {}", trimmed), Style::default().fg(Color::Rgb(0xDA, 0x70, 0x2C)))
+            } else {
+                // Normal priority
+                Span::raw(format!("    {}", trimmed))
+            };
+            lines.push(Line::from(styled_line));
+        }
+    }
+
     let content = Paragraph::new(lines).block(block);
     frame.render_widget(content, content_area);
 
     // Render input field
     let input_text = match &app.current_tab().kind {
-        TabKind::ControlPanel { input } => input.as_str(),
+        TabKind::ControlPanel { input, .. } => input.as_str(),
         _ => "",
     };
 

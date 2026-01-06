@@ -28,7 +28,11 @@ pub enum Dialog {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TabKind {
     /// Control panel with text input for creating new worktrees
-    ControlPanel { input: String },
+    ControlPanel {
+        input: String,
+        /// Output from `bd ready` command
+        bd_ready_output: Vec<String>,
+    },
     /// Worktree tab with dual terminal panes
     Worktree { path: PathBuf, branch: String, prompt: String },
 }
@@ -57,6 +61,8 @@ pub enum Command {
     DialogConfirm,
     /// Cancel dialog action (no)
     DialogCancel,
+    /// Reload bd ready output for control panel
+    ReloadBdReady(Vec<String>),
 }
 
 pub struct Tab {
@@ -71,7 +77,7 @@ pub struct Tab {
 impl Tab {
     pub fn new() -> Self {
         Self {
-            kind: TabKind::ControlPanel { input: String::new() },
+            kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
             focused: Pane::Left,
             left_term: None,
             right_term: None,
@@ -82,7 +88,7 @@ impl Tab {
 
     pub fn control_panel() -> Self {
         Self {
-            kind: TabKind::ControlPanel { input: String::new() },
+            kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
             focused: Pane::Left,
             left_term: None,
             right_term: None,
@@ -269,13 +275,18 @@ impl App {
                 }
             }
             Command::UpdateControlPanelInput(c) => {
-                if let TabKind::ControlPanel { ref mut input } = self.current_tab_mut().kind {
+                if let TabKind::ControlPanel { ref mut input, .. } = self.current_tab_mut().kind {
                     input.push(c);
                 }
             }
             Command::DeleteControlPanelChar => {
-                if let TabKind::ControlPanel { ref mut input } = self.current_tab_mut().kind {
+                if let TabKind::ControlPanel { ref mut input, .. } = self.current_tab_mut().kind {
                     input.pop();
+                }
+            }
+            Command::ReloadBdReady(output) => {
+                if let TabKind::ControlPanel { ref mut bd_ready_output, .. } = self.current_tab_mut().kind {
+                    *bd_ready_output = output;
                 }
             }
             Command::ScrollUp => {
@@ -304,7 +315,7 @@ impl App {
     /// Get the control panel input if current tab is control panel
     pub fn get_control_panel_input(&self) -> Option<&str> {
         match &self.current_tab().kind {
-            TabKind::ControlPanel { input } => Some(input),
+            TabKind::ControlPanel { input, .. } => Some(input),
             _ => None,
         }
     }
@@ -312,7 +323,7 @@ impl App {
     /// Take the control panel input (clears it) - used when submitting
     pub fn take_control_panel_input(&mut self) -> Option<String> {
         match &mut self.current_tab_mut().kind {
-            TabKind::ControlPanel { input } => {
+            TabKind::ControlPanel { input, .. } => {
                 let prompt = std::mem::take(input);
                 if prompt.is_empty() {
                     None
@@ -321,6 +332,14 @@ impl App {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// Get the bd ready output from the control panel tab (tab 0)
+    pub fn get_bd_ready_output(&self) -> &[String] {
+        match &self.tabs[0].kind {
+            TabKind::ControlPanel { bd_ready_output, .. } => bd_ready_output,
+            _ => &[],
         }
     }
 
