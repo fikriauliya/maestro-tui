@@ -37,15 +37,6 @@ pub fn border_style(focused: bool) -> Style {
     }
 }
 
-/// Style for the mode indicator in the status bar
-pub fn mode_style(is_insert: bool) -> Style {
-    if is_insert {
-        Style::default().fg(flexoki::BLACK).bg(flexoki::GREEN)
-    } else {
-        Style::default().fg(flexoki::BLACK).bg(flexoki::CYAN)
-    }
-}
-
 /// Style for active tab in the tab bar
 pub fn active_tab_style() -> Style {
     Style::default().fg(flexoki::BLACK).bg(flexoki::CYAN)
@@ -70,20 +61,6 @@ mod tests {
     fn test_border_style_unfocused() {
         let style = border_style(false);
         assert_eq!(style.fg, Some(flexoki::TX_3));
-    }
-
-    #[test]
-    fn test_mode_style_insert() {
-        let style = mode_style(true);
-        assert_eq!(style.fg, Some(flexoki::BLACK));
-        assert_eq!(style.bg, Some(flexoki::GREEN));
-    }
-
-    #[test]
-    fn test_mode_style_normal() {
-        let style = mode_style(false);
-        assert_eq!(style.fg, Some(flexoki::BLACK));
-        assert_eq!(style.bg, Some(flexoki::CYAN));
     }
 
     #[test]

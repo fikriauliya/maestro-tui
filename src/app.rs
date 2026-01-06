@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 
 use crate::input::key_to_bytes;
@@ -11,13 +11,6 @@ pub enum Pane {
     #[default]
     Left,
     Right,
-}
-
-#[derive(Default, PartialEq, Clone, Copy, Debug)]
-pub enum Mode {
-    #[default]
-    Normal,
-    Insert,
 }
 
 /// The kind of tab - control panel or worktree terminal
@@ -32,11 +25,7 @@ pub enum TabKind {
 /// Commands that can be executed by the application
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    Quit,
-    NewTab,
     SwitchTab(usize),
-    EnterInsertMode,
-    ExitInsertMode,
     FocusPane(Pane),
     TogglePane,
     WriteToTerminal(Vec<u8>),
@@ -44,8 +33,6 @@ pub enum Command {
     UpdateControlPanelInput(char),
     /// Delete last character from control panel input
     DeleteControlPanelChar,
-    /// Submit the control panel prompt to create a new worktree tab
-    SubmitPrompt,
 }
 
 pub struct Tab {
@@ -182,7 +169,6 @@ impl Default for Tab {
 pub struct App {
     pub tabs: Vec<Tab>,
     pub active_tab: usize,
-    pub mode: Mode,
 }
 
 impl App {
@@ -190,7 +176,6 @@ impl App {
         Self {
             tabs: vec![Tab::new()],
             active_tab: 0,
-            mode: Mode::Normal,
         }
     }
 
@@ -205,21 +190,10 @@ impl App {
     /// Execute a command, mutating app state as needed
     pub fn execute(&mut self, cmd: Command) {
         match cmd {
-            Command::Quit => {} // Handled by caller (breaks loop)
-            Command::NewTab => {
-                self.tabs.push(Tab::new());
-                self.active_tab = self.tabs.len() - 1;
-            }
             Command::SwitchTab(idx) => {
                 if idx < self.tabs.len() {
                     self.active_tab = idx;
                 }
-            }
-            Command::EnterInsertMode => {
-                self.mode = Mode::Insert;
-            }
-            Command::ExitInsertMode => {
-                self.mode = Mode::Normal;
             }
             Command::FocusPane(pane) => {
                 self.current_tab_mut().focused = pane;
@@ -250,10 +224,6 @@ impl App {
                 if let TabKind::ControlPanel { ref mut input } = self.current_tab_mut().kind {
                     input.pop();
                 }
-            }
-            Command::SubmitPrompt => {
-                // This will be handled in main.rs since it needs WorktreeManager
-                // Here we just extract the prompt and clear the input
             }
         }
     }
@@ -306,29 +276,29 @@ pub fn inner_area(area: Rect) -> Rect {
     }
 }
 
-/// Handle a key event in Normal mode, returning a command if applicable
-pub fn handle_key_normal(key: &KeyEvent) -> Option<Command> {
-    match key.code {
-        KeyCode::Char('q') => Some(Command::Quit),
-        KeyCode::Char('t') => Some(Command::NewTab),
-        KeyCode::Char(c @ '1'..='9') => {
-            let tab_idx = (c as usize) - ('1' as usize);
-            Some(Command::SwitchTab(tab_idx))
+/// Handle a key event for terminal tabs (passthrough model with Ctrl shortcuts)
+pub fn handle_key(key: &KeyEvent) -> Option<Command> {
+    // Check for Ctrl+key shortcuts
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        match key.code {
+            // Ctrl+0 switches to tab 0 (control panel)
+            KeyCode::Char('0') => return Some(Command::SwitchTab(0)),
+            // Ctrl+1-9 switches to tabs 1-9
+            KeyCode::Char(c @ '1'..='9') => {
+                let tab_idx = (c as usize) - ('0' as usize);
+                return Some(Command::SwitchTab(tab_idx));
+            }
+            // Ctrl+h focuses left pane
+            KeyCode::Char('h') => return Some(Command::FocusPane(Pane::Left)),
+            // Ctrl+l focuses right pane
+            KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
+            // Ctrl+Tab toggles panes
+            KeyCode::Tab => return Some(Command::TogglePane),
+            _ => {}
         }
-        KeyCode::Char('i') => Some(Command::EnterInsertMode),
-        KeyCode::Char('h') | KeyCode::Left => Some(Command::FocusPane(Pane::Left)),
-        KeyCode::Char('l') | KeyCode::Right => Some(Command::FocusPane(Pane::Right)),
-        KeyCode::Tab => Some(Command::TogglePane),
-        _ => None,
-    }
-}
-
-/// Handle a key event in Insert mode, returning a command if applicable
-pub fn handle_key_insert(key: &KeyEvent) -> Option<Command> {
-    if key.code == KeyCode::Esc {
-        return Some(Command::ExitInsertMode);
     }
 
+    // All other keys pass through to terminal
     let bytes = key_to_bytes(key);
     if !bytes.is_empty() {
         Some(Command::WriteToTerminal(bytes))
@@ -340,10 +310,13 @@ pub fn handle_key_insert(key: &KeyEvent) -> Option<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::KeyModifiers;
 
     fn make_key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    fn make_ctrl_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
     }
 
     // inner_area tests
@@ -383,94 +356,69 @@ mod tests {
         assert_eq!(inner.height, 0);
     }
 
-    // handle_key_normal tests
+    // handle_key tests (Ctrl shortcuts)
     #[test]
-    fn test_normal_quit() {
-        assert_eq!(handle_key_normal(&make_key(KeyCode::Char('q'))), Some(Command::Quit));
-    }
-
-    #[test]
-    fn test_normal_new_tab() {
-        assert_eq!(handle_key_normal(&make_key(KeyCode::Char('t'))), Some(Command::NewTab));
-    }
-
-    #[test]
-    fn test_normal_switch_tab() {
+    fn test_ctrl_switch_tab() {
         assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Char('1'))),
+            handle_key(&make_ctrl_key(KeyCode::Char('0'))),
             Some(Command::SwitchTab(0))
         );
         assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Char('5'))),
-            Some(Command::SwitchTab(4))
+            handle_key(&make_ctrl_key(KeyCode::Char('1'))),
+            Some(Command::SwitchTab(1))
         );
         assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Char('9'))),
-            Some(Command::SwitchTab(8))
+            handle_key(&make_ctrl_key(KeyCode::Char('5'))),
+            Some(Command::SwitchTab(5))
         );
-    }
-
-    #[test]
-    fn test_normal_insert_mode() {
         assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Char('i'))),
-            Some(Command::EnterInsertMode)
+            handle_key(&make_ctrl_key(KeyCode::Char('9'))),
+            Some(Command::SwitchTab(9))
         );
     }
 
     #[test]
-    fn test_normal_focus_pane() {
+    fn test_ctrl_focus_pane() {
         assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Char('h'))),
+            handle_key(&make_ctrl_key(KeyCode::Char('h'))),
             Some(Command::FocusPane(Pane::Left))
         );
         assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Left)),
-            Some(Command::FocusPane(Pane::Left))
-        );
-        assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Char('l'))),
-            Some(Command::FocusPane(Pane::Right))
-        );
-        assert_eq!(
-            handle_key_normal(&make_key(KeyCode::Right)),
+            handle_key(&make_ctrl_key(KeyCode::Char('l'))),
             Some(Command::FocusPane(Pane::Right))
         );
     }
 
     #[test]
-    fn test_normal_toggle_pane() {
-        assert_eq!(handle_key_normal(&make_key(KeyCode::Tab)), Some(Command::TogglePane));
-    }
-
-    #[test]
-    fn test_normal_unknown_key() {
-        assert_eq!(handle_key_normal(&make_key(KeyCode::Char('x'))), None);
-        assert_eq!(handle_key_normal(&make_key(KeyCode::F(1))), None);
-    }
-
-    // handle_key_insert tests
-    #[test]
-    fn test_insert_escape() {
+    fn test_ctrl_toggle_pane() {
         assert_eq!(
-            handle_key_insert(&make_key(KeyCode::Esc)),
-            Some(Command::ExitInsertMode)
+            handle_key(&make_ctrl_key(KeyCode::Tab)),
+            Some(Command::TogglePane)
         );
     }
 
+    // handle_key tests (passthrough)
     #[test]
-    fn test_insert_char() {
+    fn test_passthrough_char() {
         assert_eq!(
-            handle_key_insert(&make_key(KeyCode::Char('a'))),
+            handle_key(&make_key(KeyCode::Char('a'))),
             Some(Command::WriteToTerminal(b"a".to_vec()))
         );
     }
 
     #[test]
-    fn test_insert_enter() {
+    fn test_passthrough_enter() {
         assert_eq!(
-            handle_key_insert(&make_key(KeyCode::Enter)),
+            handle_key(&make_key(KeyCode::Enter)),
             Some(Command::WriteToTerminal(b"\r".to_vec()))
+        );
+    }
+
+    #[test]
+    fn test_passthrough_escape() {
+        assert_eq!(
+            handle_key(&make_key(KeyCode::Esc)),
+            Some(Command::WriteToTerminal(b"\x1b".to_vec()))
         );
     }
 
@@ -480,22 +428,22 @@ mod tests {
         let app = App::new();
         assert_eq!(app.tabs.len(), 1);
         assert_eq!(app.active_tab, 0);
-        assert_eq!(app.mode, Mode::Normal);
     }
 
     #[test]
-    fn test_app_new_tab() {
+    fn test_app_add_worktree_tab() {
         let mut app = App::new();
-        app.execute(Command::NewTab);
+        let idx = app.add_worktree_tab(PathBuf::from("/tmp/test"), "test-branch".to_string());
         assert_eq!(app.tabs.len(), 2);
+        assert_eq!(idx, 1);
         assert_eq!(app.active_tab, 1);
     }
 
     #[test]
     fn test_app_switch_tab() {
         let mut app = App::new();
-        app.execute(Command::NewTab);
-        app.execute(Command::NewTab);
+        app.add_worktree_tab(PathBuf::from("/tmp/test1"), "branch1".to_string());
+        app.add_worktree_tab(PathBuf::from("/tmp/test2"), "branch2".to_string());
         assert_eq!(app.active_tab, 2);
 
         app.execute(Command::SwitchTab(0));
@@ -504,18 +452,6 @@ mod tests {
         // Out of bounds - no change
         app.execute(Command::SwitchTab(10));
         assert_eq!(app.active_tab, 0);
-    }
-
-    #[test]
-    fn test_app_mode_switching() {
-        let mut app = App::new();
-        assert_eq!(app.mode, Mode::Normal);
-
-        app.execute(Command::EnterInsertMode);
-        assert_eq!(app.mode, Mode::Insert);
-
-        app.execute(Command::ExitInsertMode);
-        assert_eq!(app.mode, Mode::Normal);
     }
 
     #[test]
@@ -542,10 +478,37 @@ mod tests {
         assert_eq!(app.current_tab().focused, Pane::Left);
     }
 
+    // Control panel tests
+    #[test]
+    fn test_control_panel_input() {
+        let mut app = App::new();
+        assert!(app.current_tab().is_control_panel());
+
+        app.execute(Command::UpdateControlPanelInput('h'));
+        app.execute(Command::UpdateControlPanelInput('i'));
+        assert_eq!(app.get_control_panel_input(), Some("hi"));
+
+        app.execute(Command::DeleteControlPanelChar);
+        assert_eq!(app.get_control_panel_input(), Some("h"));
+    }
+
+    #[test]
+    fn test_take_control_panel_input() {
+        let mut app = App::new();
+        app.execute(Command::UpdateControlPanelInput('t'));
+        app.execute(Command::UpdateControlPanelInput('e'));
+        app.execute(Command::UpdateControlPanelInput('s'));
+        app.execute(Command::UpdateControlPanelInput('t'));
+
+        let input = app.take_control_panel_input();
+        assert_eq!(input, Some("test".to_string()));
+        assert_eq!(app.get_control_panel_input(), Some(""));
+    }
+
     // Tab tests
     #[test]
     fn test_tab_needs_terminal() {
-        let tab = Tab::new();
+        let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string());
         let area = Rect::new(0, 0, 80, 24);
         assert!(tab.needs_left_terminal(area));
         assert!(tab.needs_right_terminal(area));
@@ -553,8 +516,24 @@ mod tests {
 
     #[test]
     fn test_tab_needs_terminal_zero_size() {
-        let tab = Tab::new();
+        let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string());
         let area = Rect::new(0, 0, 2, 2); // inner would be 0x0
         assert!(!tab.needs_left_terminal(area));
+    }
+
+    #[test]
+    fn test_tab_kind_control_panel() {
+        let tab = Tab::control_panel();
+        assert!(tab.is_control_panel());
+        assert!(tab.worktree_path().is_none());
+        assert!(tab.branch().is_none());
+    }
+
+    #[test]
+    fn test_tab_kind_worktree() {
+        let tab = Tab::with_worktree(PathBuf::from("/tmp/test"), "feature".to_string());
+        assert!(!tab.is_control_panel());
+        assert_eq!(tab.worktree_path(), Some(&PathBuf::from("/tmp/test")));
+        assert_eq!(tab.branch(), Some("feature"));
     }
 }
