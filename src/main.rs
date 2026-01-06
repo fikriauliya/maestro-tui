@@ -29,12 +29,12 @@ fn main() -> color_eyre::Result<()> {
     let mut app = App::new();
 
     // Tab 0 is always the control panel (already created by App::new())
-    // Load existing worktrees as additional tabs
+    // Load existing worktrees as additional tabs (no stored prompt for existing worktrees)
     if let Ok(wt_manager) = WorktreeManager::new() {
         if let Ok(worktrees) = wt_manager.list() {
             for wt in worktrees {
                 let branch = wt.branch.unwrap_or_else(|| "detached".to_string());
-                app.tabs.push(Tab::with_worktree(wt.path, branch));
+                app.tabs.push(Tab::with_worktree(wt.path, branch, String::new()));
             }
         }
     }
@@ -102,7 +102,7 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                                     if let Some(ref manager) = wt_manager {
                                         let branch = slugify_prompt(&prompt);
                                         if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
-                                            app.add_worktree_tab(wt.path.clone(), branch);
+                                            app.add_worktree_tab(wt.path.clone(), branch, prompt);
                                         }
                                     }
                                 }
@@ -304,10 +304,17 @@ fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: ratatui::lay
 
     if tab.needs_right_terminal(right) {
         let inner = inner_area(right);
-        let term_result = if let Some(cwd) = tab.worktree_path() {
-            Terminal::with_command_in_dir(inner.width, inner.height, "claude", &[], cwd)
+        // Pass prompt as positional argument to Claude (keeps interactive mode)
+        let prompt = tab.worktree_prompt().unwrap_or("");
+        let args: Vec<&str> = if !prompt.is_empty() {
+            vec![prompt]
         } else {
-            Terminal::with_command(inner.width, inner.height, "claude", &[])
+            vec![]
+        };
+        let term_result = if let Some(cwd) = tab.worktree_path() {
+            Terminal::with_command_in_dir(inner.width, inner.height, "claude", &args, cwd)
+        } else {
+            Terminal::with_command(inner.width, inner.height, "claude", &args)
         };
         if let Ok(term) = term_result {
             tab.set_right_terminal(term, right);

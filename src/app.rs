@@ -19,7 +19,7 @@ pub enum TabKind {
     /// Control panel with text input for creating new worktrees
     ControlPanel { input: String },
     /// Worktree tab with dual terminal panes
-    Worktree { path: PathBuf, branch: String },
+    Worktree { path: PathBuf, branch: String, prompt: String },
 }
 
 /// Commands that can be executed by the application
@@ -72,9 +72,9 @@ impl Tab {
         }
     }
 
-    pub fn with_worktree(path: PathBuf, branch: String) -> Self {
+    pub fn with_worktree(path: PathBuf, branch: String, prompt: String) -> Self {
         Self {
-            kind: TabKind::Worktree { path, branch },
+            kind: TabKind::Worktree { path, branch, prompt },
             focused: Pane::Left,
             left_term: None,
             right_term: None,
@@ -100,6 +100,14 @@ impl Tab {
     pub fn branch(&self) -> Option<&str> {
         match &self.kind {
             TabKind::Worktree { branch, .. } => Some(branch),
+            _ => None,
+        }
+    }
+
+    /// Get prompt if this is a worktree tab
+    pub fn worktree_prompt(&self) -> Option<&str> {
+        match &self.kind {
+            TabKind::Worktree { prompt, .. } => Some(prompt),
             _ => None,
         }
     }
@@ -284,8 +292,8 @@ impl App {
     }
 
     /// Add a new worktree tab and switch to it, returns the new tab index
-    pub fn add_worktree_tab(&mut self, path: PathBuf, branch: String) -> usize {
-        self.tabs.push(Tab::with_worktree(path, branch));
+    pub fn add_worktree_tab(&mut self, path: PathBuf, branch: String, prompt: String) -> usize {
+        self.tabs.push(Tab::with_worktree(path, branch, prompt));
         let new_idx = self.tabs.len() - 1;
         self.active_tab = new_idx;
         new_idx
@@ -481,7 +489,7 @@ mod tests {
     #[test]
     fn test_app_add_worktree_tab() {
         let mut app = App::new();
-        let idx = app.add_worktree_tab(PathBuf::from("/tmp/test"), "test-branch".to_string());
+        let idx = app.add_worktree_tab(PathBuf::from("/tmp/test"), "test-branch".to_string(), "test prompt".to_string());
         assert_eq!(app.tabs.len(), 2);
         assert_eq!(idx, 1);
         assert_eq!(app.active_tab, 1);
@@ -490,8 +498,8 @@ mod tests {
     #[test]
     fn test_app_switch_tab() {
         let mut app = App::new();
-        app.add_worktree_tab(PathBuf::from("/tmp/test1"), "branch1".to_string());
-        app.add_worktree_tab(PathBuf::from("/tmp/test2"), "branch2".to_string());
+        app.add_worktree_tab(PathBuf::from("/tmp/test1"), "branch1".to_string(), String::new());
+        app.add_worktree_tab(PathBuf::from("/tmp/test2"), "branch2".to_string(), String::new());
         assert_eq!(app.active_tab, 2);
 
         app.execute(Command::SwitchTab(0));
@@ -556,7 +564,7 @@ mod tests {
     // Tab tests
     #[test]
     fn test_tab_needs_terminal() {
-        let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string());
+        let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string(), String::new());
         let area = Rect::new(0, 0, 80, 24);
         assert!(tab.needs_left_terminal(area));
         assert!(tab.needs_right_terminal(area));
@@ -564,7 +572,7 @@ mod tests {
 
     #[test]
     fn test_tab_needs_terminal_zero_size() {
-        let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string());
+        let tab = Tab::with_worktree(PathBuf::from("/tmp"), "test".to_string(), String::new());
         let area = Rect::new(0, 0, 2, 2); // inner would be 0x0
         assert!(!tab.needs_left_terminal(area));
     }
@@ -579,9 +587,10 @@ mod tests {
 
     #[test]
     fn test_tab_kind_worktree() {
-        let tab = Tab::with_worktree(PathBuf::from("/tmp/test"), "feature".to_string());
+        let tab = Tab::with_worktree(PathBuf::from("/tmp/test"), "feature".to_string(), "my prompt".to_string());
         assert!(!tab.is_control_panel());
         assert_eq!(tab.worktree_path(), Some(&PathBuf::from("/tmp/test")));
         assert_eq!(tab.branch(), Some("feature"));
+        assert_eq!(tab.worktree_prompt(), Some("my prompt"));
     }
 }
