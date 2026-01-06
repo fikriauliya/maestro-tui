@@ -78,7 +78,16 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                     let is_control_panel = app.current_tab().is_control_panel();
 
                     if is_control_panel {
-                        // Control panel: text input handling
+                        // Control panel: check Ctrl shortcuts first, then handle text input
+                        // Check Ctrl shortcuts for any key (not just Char)
+                        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                            if let Some(cmd) = handle_key(&key) {
+                                app.execute(cmd);
+                                continue;
+                            }
+                        }
+
+                        // Handle text input
                         match key.code {
                             KeyCode::Enter => {
                                 // Submit prompt and create worktree tab
@@ -95,21 +104,9 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                                 app.execute(Command::DeleteControlPanelChar);
                             }
                             KeyCode::Char(c) => {
-                                // Check for Ctrl+key shortcuts
-                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
-                                    if let Some(cmd) = handle_key(&key) {
-                                        app.execute(cmd);
-                                    }
-                                } else {
-                                    app.execute(Command::UpdateControlPanelInput(c));
-                                }
+                                app.execute(Command::UpdateControlPanelInput(c));
                             }
-                            _ => {
-                                // Pass Ctrl shortcuts through
-                                if let Some(cmd) = handle_key(&key) {
-                                    app.execute(cmd);
-                                }
-                            }
+                            _ => {}
                         }
                     } else {
                         // Terminal tab: passthrough with Ctrl shortcuts

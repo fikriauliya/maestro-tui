@@ -294,11 +294,20 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
             // Ctrl+Tab toggles panes
             KeyCode::Tab => return Some(Command::TogglePane),
+            // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
+            KeyCode::Char(c) if c.is_ascii_alphabetic() => {
+                let bytes = key_to_bytes(key);
+                if !bytes.is_empty() {
+                    return Some(Command::WriteToTerminal(bytes));
+                }
+            }
             _ => {}
         }
+        // Unrecognized Ctrl combos (like Ctrl+@, Ctrl+[) - do nothing
+        return None;
     }
 
-    // All other keys pass through to terminal
+    // Non-Ctrl keys pass through to terminal
     let bytes = key_to_bytes(key);
     if !bytes.is_empty() {
         Some(Command::WriteToTerminal(bytes))
