@@ -172,9 +172,9 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                             && mouse.row >= main_area.y
                             && mouse.row < main_area.y + main_area.height
                         {
-                            // ScrollUp = wheel up = show older content = negative delta (scroll back in history)
-                            // ScrollDown = wheel down = show newer content = positive delta (scroll forward)
-                            let lines = if mouse.kind == MouseEventKind::ScrollUp { -3 } else { 3 };
+                            // ScrollUp = wheel up = show older content = positive delta (increases display_offset)
+                            // ScrollDown = wheel down = show newer content = negative delta (decreases display_offset)
+                            let lines = if mouse.kind == MouseEventKind::ScrollUp { 3 } else { -3 };
                             app.current_tab_mut().scroll_focused(lines);
                         }
                     }

@@ -211,13 +211,21 @@ impl Widget for TerminalWidget {
         let term = self.term.lock().unwrap();
         let content = term.renderable_content();
 
+        // Get the display offset to calculate screen y from grid line
+        let display_offset = content.display_offset as i32;
+
         for cell in content.display_iter {
             let x = cell.point.column.0 as u16;
-            let y = cell.point.line.0 as u16;
+            // Convert grid line to screen y: line 0 is at screen_lines-1, negative lines are above
+            // With display_offset, the topmost visible line is -(display_offset)
+            // Screen y = line - (-(display_offset)) = line + display_offset
+            let grid_line = cell.point.line.0;
+            let screen_y = grid_line + display_offset;
 
-            if x >= area.width || y >= area.height {
+            if x >= area.width || screen_y < 0 || screen_y >= area.height as i32 {
                 continue;
             }
+            let y = screen_y as u16;
 
             let fg = convert_color(cell.fg);
             let bg = convert_color(cell.bg);
