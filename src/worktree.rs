@@ -32,6 +32,19 @@ pub enum RemoveWarning {
     UncommittedChanges,
 }
 
+/// Status information for a worktree
+#[derive(Debug, Clone)]
+pub struct WorktreeStatus {
+    /// The worktree
+    pub worktree: Worktree,
+    /// Whether there are uncommitted changes
+    pub is_dirty: bool,
+    /// Commits ahead of main
+    pub ahead: usize,
+    /// Commits behind main
+    pub behind: usize,
+}
+
 /// Generate a git-friendly branch name from a prompt
 ///
 /// Takes the first few words, lowercases, and replaces non-alphanumeric with dashes.
@@ -428,6 +441,70 @@ impl<G: GitBackend> WorktreeManager<G> {
         }
 
         Err(eyre!("No main or master branch found"))
+    }
+
+    /// Get the number of commits a branch is ahead/behind main
+    ///
+    /// Returns (ahead, behind) where:
+    /// - ahead = commits in branch not in main
+    /// - behind = commits in main not in branch
+    pub fn get_ahead_behind(&self, branch: &str) -> Result<(usize, usize)> {
+        let main_branch = self.get_main_branch()?;
+
+        // For main branch itself, return (0, 0)
+        if branch == main_branch {
+            return Ok((0, 0));
+        }
+
+        let output = self
+            .git
+            .execute(&[
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{}...{}", main_branch, branch),
+            ])
+            .wrap_err("Failed to get ahead/behind count")?;
+
+        if !output.status.success() {
+            // Branch might not exist or have no common ancestor
+            return Ok((0, 0));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = stdout.trim().split_whitespace().collect();
+
+        if parts.len() == 2 {
+            let behind = parts[0].parse().unwrap_or(0);
+            let ahead = parts[1].parse().unwrap_or(0);
+            Ok((ahead, behind))
+        } else {
+            Ok((0, 0))
+        }
+    }
+
+    /// List all worktrees with their status information
+    pub fn list_with_status(&self) -> Result<Vec<WorktreeStatus>> {
+        let worktrees = self.list()?;
+        let mut statuses = Vec::new();
+
+        for wt in worktrees {
+            let is_dirty = self.has_uncommitted_changes(&wt.path).unwrap_or(false);
+            let (ahead, behind) = if let Some(ref branch) = wt.branch {
+                self.get_ahead_behind(branch).unwrap_or((0, 0))
+            } else {
+                (0, 0)
+            };
+
+            statuses.push(WorktreeStatus {
+                worktree: wt,
+                is_dirty,
+                ahead,
+                behind,
+            });
+        }
+
+        Ok(statuses)
     }
 }
 

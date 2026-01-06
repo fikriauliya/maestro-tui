@@ -22,7 +22,7 @@ use crossterm::event::KeyCode;
 use crate::app::{handle_key, handle_dialog_key, inner_area, App, Command, Dialog, Pane, Tab, TabKind};
 use crate::terminal::Terminal;
 use crate::ui::{active_tab_style, border_style, inactive_tab_style};
-use crate::worktree::{slugify_prompt, WorktreeManager};
+use crate::worktree::{slugify_prompt, WorktreeManager, WorktreeStatus};
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -319,16 +319,59 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rec
         Line::from(""),
     ];
 
-    // List existing worktree tabs
+    // Get worktree status information
+    let worktree_statuses: Vec<WorktreeStatus> = WorktreeManager::new()
+        .and_then(|m| m.list_with_status())
+        .unwrap_or_default();
+
+    // List worktrees with status
     lines.push(Line::from(Span::styled(
         "  Worktrees:",
         Style::default().fg(Color::Cyan),
     )));
-    for (i, tab) in app.tabs.iter().enumerate() {
-        if let TabKind::Worktree { branch, .. } = &tab.kind {
-            lines.push(Line::from(format!("    [{}] {}", i, branch)));
+
+    for status in &worktree_statuses {
+        let branch = status.worktree.branch.as_deref().unwrap_or("detached");
+
+        // Build status indicators
+        let mut indicators = Vec::new();
+
+        // Dirty indicator
+        if status.is_dirty {
+            indicators.push(Span::styled(" ●", Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41)))); // Flexoki red
         }
+
+        // Ahead/behind indicators
+        if status.ahead > 0 {
+            indicators.push(Span::styled(
+                format!(" ↑{}", status.ahead),
+                Style::default().fg(Color::Rgb(0x87, 0x9A, 0x39)), // Flexoki green
+            ));
+        }
+        if status.behind > 0 {
+            indicators.push(Span::styled(
+                format!(" ↓{}", status.behind),
+                Style::default().fg(Color::Rgb(0xDA, 0x70, 0x2C)), // Flexoki orange
+            ));
+        }
+
+        // Build the line
+        let mut spans = vec![Span::raw(format!("    {}", branch))];
+        spans.extend(indicators);
+        lines.push(Line::from(spans));
     }
+
+    // Legend
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("●", Style::default().fg(Color::Rgb(0xD1, 0x4D, 0x41))),
+        Span::raw(" dirty  "),
+        Span::styled("↑", Style::default().fg(Color::Rgb(0x87, 0x9A, 0x39))),
+        Span::raw(" ahead  "),
+        Span::styled("↓", Style::default().fg(Color::Rgb(0xDA, 0x70, 0x2C))),
+        Span::raw(" behind"),
+    ]));
 
     let content = Paragraph::new(lines).block(block);
     frame.render_widget(content, content_area);
