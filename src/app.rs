@@ -280,26 +280,31 @@ pub fn inner_area(area: Rect) -> Rect {
     }
 }
 
-/// Handle a key event for terminal tabs (passthrough model with Ctrl shortcuts)
+/// Handle a key event for terminal tabs (passthrough model with Ctrl/Alt shortcuts)
 pub fn handle_key(key: &KeyEvent) -> Option<Command> {
-    // Check for Ctrl+key shortcuts
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
+    // Check for Alt+number shortcuts (tab switching)
+    if key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
-            // Ctrl+0 switches to tab 0 (control panel)
+            // Alt+0 switches to tab 0 (control panel)
             KeyCode::Char('0') => return Some(Command::SwitchTab(0)),
-            // Ctrl+1-9 switches to tabs 1-9
+            // Alt+1-9 switches to tabs 1-9
             KeyCode::Char(c @ '1'..='9') => {
                 let tab_idx = (c as usize) - ('0' as usize);
                 return Some(Command::SwitchTab(tab_idx));
             }
+            _ => {}
+        }
+    }
+
+    // Check for Ctrl+key shortcuts
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        match key.code {
             // Ctrl+h focuses left pane
             KeyCode::Char('h') => return Some(Command::FocusPane(Pane::Left)),
             // Ctrl+l focuses right pane
             KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
             // Ctrl+x quits the application
             KeyCode::Char('x') => return Some(Command::Quit),
-            // Ctrl+Tab toggles panes
-            KeyCode::Tab => return Some(Command::TogglePane),
             // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
             KeyCode::Char(c) if c.is_ascii_alphabetic() => {
                 let bytes = key_to_bytes(key);
@@ -332,6 +337,10 @@ mod tests {
 
     fn make_ctrl_key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    fn make_alt_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::ALT)
     }
 
     // inner_area tests
@@ -371,23 +380,23 @@ mod tests {
         assert_eq!(inner.height, 0);
     }
 
-    // handle_key tests (Ctrl shortcuts)
+    // handle_key tests (Alt+number for tabs, Ctrl for other shortcuts)
     #[test]
-    fn test_ctrl_switch_tab() {
+    fn test_alt_switch_tab() {
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('0'))),
+            handle_key(&make_alt_key(KeyCode::Char('0'))),
             Some(Command::SwitchTab(0))
         );
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('1'))),
+            handle_key(&make_alt_key(KeyCode::Char('1'))),
             Some(Command::SwitchTab(1))
         );
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('5'))),
+            handle_key(&make_alt_key(KeyCode::Char('5'))),
             Some(Command::SwitchTab(5))
         );
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('9'))),
+            handle_key(&make_alt_key(KeyCode::Char('9'))),
             Some(Command::SwitchTab(9))
         );
     }
@@ -401,14 +410,6 @@ mod tests {
         assert_eq!(
             handle_key(&make_ctrl_key(KeyCode::Char('l'))),
             Some(Command::FocusPane(Pane::Right))
-        );
-    }
-
-    #[test]
-    fn test_ctrl_toggle_pane() {
-        assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Tab)),
-            Some(Command::TogglePane)
         );
     }
 

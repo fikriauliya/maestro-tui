@@ -79,9 +79,11 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                     let is_control_panel = app.current_tab().is_control_panel();
 
                     if is_control_panel {
-                        // Control panel: check Ctrl shortcuts first, then handle text input
-                        // Check Ctrl shortcuts for any key (not just Char)
-                        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                        // Control panel: check Ctrl/Alt shortcuts first, then handle text input
+                        // Check shortcuts for any key with Ctrl or Alt modifier
+                        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                            || key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
+                        {
                             if let Some(cmd) = handle_key(&key) {
                                 if matches!(cmd, Command::Quit) {
                                     return Ok(());

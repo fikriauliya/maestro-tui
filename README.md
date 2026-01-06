@@ -14,7 +14,7 @@ Modern AI coding assistants like Claude Code are powerful, but juggling between 
 - **Worktree-per-tab** - Each tab is a separate git worktree. Work on multiple features simultaneously without stashing or branch switching.
 - **Prompt-driven workflow** - Describe what you want to build in the control panel. Maestro creates the worktree and tab automatically.
 - **Touch-friendly** - Clickable tabs and quit button. Works great over SSH from an iPad.
-- **Keyboard shortcuts** - Ctrl+0-9 for tabs, Ctrl+h/l for panes, Ctrl+x to quit.
+- **Keyboard shortcuts** - Alt+0-9 for tabs, Ctrl+h/l for panes, Ctrl+x to quit.
 
 ## Installation
 
@@ -49,11 +49,10 @@ maestro-tui
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+0` | Switch to control panel |
-| `Ctrl+1-9` | Switch to tab 1-9 |
+| `Alt+0` | Switch to control panel |
+| `Alt+1-9` | Switch to tab 1-9 |
 | `Ctrl+h` | Focus left pane (shell) |
 | `Ctrl+l` | Focus right pane (Claude) |
-| `Ctrl+Tab` | Toggle between panes |
 | `Ctrl+x` | Quit |
 
 ### Mouse
@@ -63,7 +62,7 @@ maestro-tui
 
 ### Creating a New Task
 
-1. Go to Tab 0 (control panel) with `Ctrl+0` or click
+1. Go to Tab 0 (control panel) with `Alt+0` or click
 2. Type a prompt describing your task
 3. Press Enter
 
