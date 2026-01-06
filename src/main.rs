@@ -59,13 +59,14 @@ fn main() -> color_eyre::Result<()> {
 fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>) -> color_eyre::Result<()> {
     // Store worktree manager for creating new worktrees
     let wt_manager = WorktreeManager::new().ok();
-    // Track tab area and quit button position for click detection
+    // Track tab area, quit button position, and main area for click detection
     let mut tab_area = Rect::default();
     let mut quit_button_x = 0u16;
+    let mut main_area = Rect::default();
 
     loop {
         terminal.draw(|frame| {
-            (tab_area, quit_button_x) = render(app, frame);
+            (tab_area, quit_button_x, main_area) = render(app, frame);
         })?;
 
         if event::poll(Duration::from_millis(16))? {
@@ -125,28 +126,43 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
                     }
                 }
                 Event::Mouse(mouse) => {
-                    // Handle mouse clicks on tab bar
-                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) && mouse.row == tab_area.y {
-                        // Check if quit button was clicked
-                        if mouse.column >= quit_button_x {
-                            return Ok(());
-                        }
-                        // Check if a tab was clicked
-                        if mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
-                            // Calculate which tab was clicked
-                            let mut x = 0u16;
-                            for (i, tab) in app.tabs.iter().enumerate() {
-                                // Tab width: " label " + 1 space separator
-                                let label = match &tab.kind {
-                                    TabKind::ControlPanel { .. } => "0 Control".to_string(),
-                                    TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
-                                };
-                                let tab_width = (label.len() + 2 + 1) as u16; // " label " + separator
-                                if mouse.column >= x && mouse.column < x + tab_width {
-                                    app.execute(Command::SwitchTab(i));
-                                    break;
+                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                        // Handle mouse clicks on tab bar
+                        if mouse.row == tab_area.y {
+                            // Check if quit button was clicked
+                            if mouse.column >= quit_button_x {
+                                return Ok(());
+                            }
+                            // Check if a tab was clicked
+                            if mouse.column >= tab_area.x && mouse.column < tab_area.x + tab_area.width {
+                                // Calculate which tab was clicked
+                                let mut x = 0u16;
+                                for (i, tab) in app.tabs.iter().enumerate() {
+                                    // Tab width: " label " + 1 space separator
+                                    let label = match &tab.kind {
+                                        TabKind::ControlPanel { .. } => "0 Control".to_string(),
+                                        TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
+                                    };
+                                    let tab_width = (label.len() + 2 + 1) as u16; // " label " + separator
+                                    if mouse.column >= x && mouse.column < x + tab_width {
+                                        app.execute(Command::SwitchTab(i));
+                                        break;
+                                    }
+                                    x += tab_width;
                                 }
-                                x += tab_width;
+                            }
+                        }
+                        // Handle mouse clicks on panes (only for terminal tabs)
+                        else if !app.current_tab().is_control_panel()
+                            && mouse.row >= main_area.y
+                            && mouse.row < main_area.y + main_area.height
+                        {
+                            // Left half = left pane, right half = right pane
+                            let mid_x = main_area.x + main_area.width / 2;
+                            if mouse.column < mid_x {
+                                app.execute(Command::FocusPane(Pane::Left));
+                            } else {
+                                app.execute(Command::FocusPane(Pane::Right));
                             }
                         }
                     }
@@ -160,8 +176,8 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
     }
 }
 
-/// Returns (tab_area, quit_button_x) for click detection
-fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16) {
+/// Returns (tab_area, quit_button_x, main_area) for click detection
+fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     // Split into tab bar, main area, and status bar
     let [tab_area, main_area, status_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
@@ -203,7 +219,7 @@ fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16) {
         render_terminal_tab(app, frame, main_area);
     }
 
-    (tab_area, quit_x)
+    (tab_area, quit_x, main_area)
 }
 
 fn render_control_panel(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
