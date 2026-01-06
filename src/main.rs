@@ -8,7 +8,7 @@ mod worktree;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind, MouseEventKind, MouseButton, EnableMouseCapture, DisableMouseCapture};
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType};
 use crossterm::execute;
 use ratatui::{
     backend::CrosstermBackend,
@@ -42,7 +42,7 @@ fn main() -> color_eyre::Result<()> {
     // Setup terminal with mouse support
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen, Clear(ClearType::All), EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = RatatuiTerminal::new(backend)?;
 
