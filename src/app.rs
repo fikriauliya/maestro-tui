@@ -394,8 +394,8 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('d') => return Some(Command::ScrollDown),
             // Ctrl+m merges current worktree branch into main
             KeyCode::Char('m') => return Some(Command::MergeBranch),
-            // Ctrl+w deletes current worktree (with confirmation)
-            KeyCode::Char('w') => return Some(Command::DeleteWorktree),
+            // Ctrl+Backspace deletes current worktree (with confirmation)
+            KeyCode::Backspace => return Some(Command::DeleteWorktree),
             // Ctrl+x quits the application
             KeyCode::Char('x') => return Some(Command::Quit),
             // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
@@ -527,9 +527,9 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_delete_worktree() {
+    fn test_ctrl_backspace_delete_worktree() {
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('w'))),
+            handle_key(&make_ctrl_key(KeyCode::Backspace)),
             Some(Command::DeleteWorktree)
         );
     }
