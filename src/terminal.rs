@@ -1,13 +1,13 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, JoinHandle};
 
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::cell::Flags as CellFlags;
 use alacritty_terminal::term::{test::TermSize, Config};
 use alacritty_terminal::vte::ansi::Processor;
 use alacritty_terminal::Term;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -25,7 +25,9 @@ impl EventListener for Listener {
 pub struct Terminal {
     term: Arc<Mutex<Term<Listener>>>,
     pty_writer: Box<dyn Write + Send>,
-    _reader_thread: thread::JoinHandle<()>,
+    pty_master: Box<dyn MasterPty + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    reader_thread: Option<JoinHandle<()>>,
 }
 
 impl Terminal {
@@ -57,7 +59,7 @@ impl Terminal {
         }
         cmd.cwd(std::env::current_dir()?);
 
-        let _child = pty_pair
+        let child = pty_pair
             .slave
             .spawn_command(cmd)
             .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
@@ -96,7 +98,9 @@ impl Terminal {
         Ok(Self {
             term,
             pty_writer: writer,
-            _reader_thread: reader_thread,
+            pty_master: pty_pair.master,
+            child,
+            reader_thread: Some(reader_thread),
         })
     }
 
@@ -106,6 +110,14 @@ impl Terminal {
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) {
+        // Resize the PTY (notifies child process via SIGWINCH)
+        let _ = self.pty_master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
+        // Resize the terminal emulator state
         let size = TermSize::new(cols as usize, rows as usize);
         self.term.lock().unwrap().resize(size);
     }
@@ -113,6 +125,19 @@ impl Terminal {
     pub fn widget(&self) -> TerminalWidget {
         TerminalWidget {
             term: Arc::clone(&self.term),
+        }
+    }
+}
+
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        // Kill the child process
+        let _ = self.child.kill();
+        // Wait for child to exit (prevents zombie processes)
+        let _ = self.child.wait();
+        // Join the reader thread (it will exit once the PTY is closed)
+        if let Some(thread) = self.reader_thread.take() {
+            let _ = thread.join();
         }
     }
 }
