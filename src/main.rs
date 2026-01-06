@@ -437,7 +437,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
         ("Ctrl+h", "Left"),
         ("Ctrl+l", "Right"),
         ("Ctrl+m", "Merge"),
-        ("Ctrl+⌫", "Delete"),
+        ("Ctrl+r", "Remove"),
         ("Ctrl+x", "Quit"),
     ];
 
