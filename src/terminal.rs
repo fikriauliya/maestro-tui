@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -42,6 +43,16 @@ impl Terminal {
         program: &str,
         args: &[&str],
     ) -> color_eyre::Result<Self> {
+        Self::with_command_in_dir(cols, rows, program, args, &std::env::current_dir()?)
+    }
+
+    pub fn with_command_in_dir(
+        cols: u16,
+        rows: u16,
+        program: &str,
+        args: &[&str],
+        cwd: &Path,
+    ) -> color_eyre::Result<Self> {
         let pty_system = native_pty_system();
 
         let pty_pair = pty_system
@@ -57,7 +68,7 @@ impl Terminal {
         for arg in args {
             cmd.arg(*arg);
         }
-        cmd.cwd(std::env::current_dir()?);
+        cmd.cwd(cwd);
 
         let child = pty_pair
             .slave

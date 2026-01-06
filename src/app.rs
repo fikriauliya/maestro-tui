@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 
@@ -35,6 +37,8 @@ pub struct Tab {
     pub focused: Pane,
     pub left_term: Option<Terminal>,
     pub right_term: Option<Terminal>,
+    pub worktree_path: Option<PathBuf>,
+    pub branch: Option<String>,
     last_left_size: (u16, u16),
     last_right_size: (u16, u16),
 }
@@ -45,6 +49,20 @@ impl Tab {
             focused: Pane::Left,
             left_term: None,
             right_term: None,
+            worktree_path: None,
+            branch: None,
+            last_left_size: (0, 0),
+            last_right_size: (0, 0),
+        }
+    }
+
+    pub fn with_worktree(path: PathBuf, branch: String) -> Self {
+        Self {
+            focused: Pane::Left,
+            left_term: None,
+            right_term: None,
+            worktree_path: Some(path),
+            branch: Some(branch),
             last_left_size: (0, 0),
             last_right_size: (0, 0),
         }

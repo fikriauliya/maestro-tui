@@ -14,13 +14,28 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::app::{handle_key_insert, handle_key_normal, inner_area, App, Command, Mode, Pane};
+use crate::app::{handle_key_insert, handle_key_normal, inner_area, App, Command, Mode, Pane, Tab};
 use crate::terminal::Terminal;
 use crate::ui::{active_tab_style, border_style, inactive_tab_style, mode_style};
+use crate::worktree::WorktreeManager;
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let mut app = App::new();
+
+    // Load existing worktrees as tabs
+    if let Ok(wt_manager) = WorktreeManager::new() {
+        if let Ok(worktrees) = wt_manager.list() {
+            if !worktrees.is_empty() {
+                app.tabs.clear();
+                for wt in worktrees {
+                    let branch = wt.branch.unwrap_or_else(|| "detached".to_string());
+                    app.tabs.push(Tab::with_worktree(wt.path, branch));
+                }
+            }
+        }
+    }
+
     let terminal = ratatui::init();
     let result = run(&mut app, terminal);
     ratatui::restore();
@@ -85,7 +100,13 @@ fn render(app: &mut App, frame: &mut Frame) {
 
     if tab.needs_left_terminal(left) {
         let inner = inner_area(left);
-        if let Ok(term) = Terminal::new(inner.width, inner.height) {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let term_result = if let Some(ref cwd) = tab.worktree_path {
+            Terminal::with_command_in_dir(inner.width, inner.height, &shell, &[], cwd)
+        } else {
+            Terminal::new(inner.width, inner.height)
+        };
+        if let Ok(term) = term_result {
             tab.set_left_terminal(term, left);
         }
     } else if let Some((cols, rows)) = tab.needs_left_resize(left) {
@@ -97,7 +118,12 @@ fn render(app: &mut App, frame: &mut Frame) {
 
     if tab.needs_right_terminal(right) {
         let inner = inner_area(right);
-        if let Ok(term) = Terminal::with_command(inner.width, inner.height, "claude", &[]) {
+        let term_result = if let Some(ref cwd) = tab.worktree_path {
+            Terminal::with_command_in_dir(inner.width, inner.height, "claude", &[], cwd)
+        } else {
+            Terminal::with_command(inner.width, inner.height, "claude", &[])
+        };
+        if let Ok(term) = term_result {
             tab.set_right_terminal(term, right);
         }
     } else if let Some((cols, rows)) = tab.needs_right_resize(right) {
