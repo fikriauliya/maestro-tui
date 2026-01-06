@@ -3,6 +3,7 @@ mod input;
 mod pty;
 mod terminal;
 mod ui;
+mod worktree;
 
 use std::time::Duration;
 
