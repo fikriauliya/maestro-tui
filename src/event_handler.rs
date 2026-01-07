@@ -6,7 +6,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use crate::app::{App, Command, Dialog, Pane, TabKind, handle_dialog_key, handle_key};
+use crate::app::{
+    App, Command, ControlPanelPane, Dialog, Pane, TabKind, handle_dialog_key, handle_key,
+};
+use crate::input::key_to_bytes;
 use crate::worktree::{RemoveWarning, WorktreeManager, generate_merge_message, slugify_prompt};
 
 /// Result of handling an event.
@@ -77,6 +80,18 @@ pub fn process_control_panel_key(
             return KeyAction::Continue;
         }
 
+        // Alt+h focuses content pane, Alt+l focuses Claude pane
+        if key.code == KeyCode::Char('h') {
+            app.current_tab_mut()
+                .set_control_panel_pane(ControlPanelPane::Content);
+            return KeyAction::Continue;
+        }
+        if key.code == KeyCode::Char('l') {
+            app.current_tab_mut()
+                .set_control_panel_pane(ControlPanelPane::Claude);
+            return KeyAction::Continue;
+        }
+
         if let Some(cmd) = handle_key(key) {
             if matches!(cmd, Command::Quit) {
                 return KeyAction::Quit;
@@ -86,21 +101,38 @@ pub fn process_control_panel_key(
         }
     }
 
-    // Handle text input
-    match key.code {
-        KeyCode::Enter => {
-            if let Some(prompt) = app.take_control_panel_input()
-                && let Some(manager) = wt_manager
-            {
-                let branch = slugify_prompt(&prompt);
-                if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
-                    app.add_worktree_tab(wt.path.clone(), branch, prompt);
+    // Get the focused pane
+    let focused_pane = app.current_tab().control_panel_pane();
+
+    // Route input based on focused pane
+    match focused_pane {
+        ControlPanelPane::Content => {
+            // Handle text input for worktree creation
+            match key.code {
+                KeyCode::Enter => {
+                    if let Some(prompt) = app.take_control_panel_input()
+                        && let Some(manager) = wt_manager
+                    {
+                        let branch = slugify_prompt(&prompt);
+                        if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
+                            app.add_worktree_tab(wt.path.clone(), branch, prompt);
+                        }
+                    }
+                }
+                KeyCode::Backspace => app.execute(Command::DeleteControlPanelChar),
+                KeyCode::Char(c) => app.execute(Command::UpdateControlPanelInput(c)),
+                _ => {}
+            }
+        }
+        ControlPanelPane::Claude => {
+            // Pass input to Claude terminal
+            let bytes = key_to_bytes(key);
+            if !bytes.is_empty() {
+                if let Some(ref mut term) = app.current_tab_mut().claude_terminal {
+                    let _ = term.write(&bytes);
                 }
             }
         }
-        KeyCode::Backspace => app.execute(Command::DeleteControlPanelChar),
-        KeyCode::Char(c) => app.execute(Command::UpdateControlPanelInput(c)),
-        _ => {}
     }
 
     KeyAction::Continue
@@ -219,18 +251,26 @@ pub fn process_mouse_click(
         return false;
     }
 
-    // Pane focus clicks (only for terminal tabs)
-    if !app.current_tab().is_control_panel()
-        && mouse.row >= main_area.y
-        && mouse.row < main_area.y + main_area.height
-    {
+    // Pane focus clicks
+    if mouse.row >= main_area.y && mouse.row < main_area.y + main_area.height {
         let mid_x = main_area.x + main_area.width / 2;
-        let pane = if mouse.column < mid_x {
-            Pane::Left
+        if app.current_tab().is_control_panel() {
+            // Control panel: left is content, right is Claude
+            let pane = if mouse.column < mid_x {
+                ControlPanelPane::Content
+            } else {
+                ControlPanelPane::Claude
+            };
+            app.current_tab_mut().set_control_panel_pane(pane);
         } else {
-            Pane::Right
-        };
-        app.execute(Command::FocusPane(pane));
+            // Terminal tab: left is diff, right is Claude
+            let pane = if mouse.column < mid_x {
+                Pane::Left
+            } else {
+                Pane::Right
+            };
+            app.execute(Command::FocusPane(pane));
+        }
     }
 
     false

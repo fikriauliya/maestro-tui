@@ -14,7 +14,7 @@ use ratatui::{
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::app::{App, Dialog, Pane, TabKind, inner_area};
+use crate::app::{App, ControlPanelPane, Dialog, Pane, TabKind, inner_area};
 use crate::theme::{self, active_tab_style, border_style, inactive_tab_style};
 use crate::worktree::{WorktreeManager, WorktreeStatus};
 
@@ -101,7 +101,39 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
 }
 
 /// Render the control panel tab with worktree management interface.
-fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
+fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
+    // Split into left (content) and right (Claude terminal) panes
+    let [left_area, right_area] =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(area);
+
+    // Get the focused pane
+    let focused_pane = app.current_tab().control_panel_pane();
+
+    // Render left pane (content + input)
+    render_control_panel_content(
+        app,
+        frame,
+        left_area,
+        focused_pane == ControlPanelPane::Content,
+    );
+
+    // Ensure Claude terminal exists and render right pane
+    let tab = app.current_tab_mut();
+    tab.ensure_claude_terminal(right_area);
+
+    let tab = app.current_tab();
+    let right_block = Block::bordered()
+        .title("Claude")
+        .border_style(border_style(focused_pane == ControlPanelPane::Claude));
+
+    frame.render_widget(right_block.clone(), right_area);
+    if let Some(ref term) = tab.claude_terminal {
+        frame.render_widget(term.widget(), inner_area(right_area));
+    }
+}
+
+/// Render the content portion of the control panel (left side).
+fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_focused: bool) {
     // Split into content area and input area
     let [content_area, input_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).areas(area);
@@ -109,7 +141,7 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
     // Render control panel content
     let block = Block::bordered()
         .title("Control Panel")
-        .border_style(border_style(true));
+        .border_style(border_style(is_focused));
 
     let mut lines = vec![
         Line::from(""),
@@ -224,10 +256,14 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
 
     let input_block = Block::bordered()
         .title("Prompt")
-        .border_style(border_style(true)); // Always focused on control panel
+        .border_style(border_style(is_focused));
 
-    // Show cursor indicator
-    let input_display = format!("{}_", input_text);
+    // Show cursor indicator only when content pane is focused
+    let input_display = if is_focused {
+        format!("{}_", input_text)
+    } else {
+        input_text.to_string()
+    };
     let input_widget = Paragraph::new(input_display).block(input_block);
     frame.render_widget(input_widget, input_area);
 }
@@ -410,7 +446,14 @@ fn truncate_middle(s: &str, max_len: usize) -> String {
     let end_len = available / 2;
 
     let start: String = s.chars().take(start_len).collect();
-    let end: String = s.chars().rev().take(end_len).collect::<Vec<_>>().into_iter().rev().collect();
+    let end: String = s
+        .chars()
+        .rev()
+        .take(end_len)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
 
     format!("{}{}{}", start, ellipsis, end)
 }
@@ -429,7 +472,10 @@ mod tests {
     fn test_truncate_middle_long_string() {
         // "implement-the-theme-picker" is 26 chars, truncate to 12
         // available = 11, start = 6, end = 5
-        assert_eq!(truncate_middle("implement-the-theme-picker", 12), "implem…icker");
+        assert_eq!(
+            truncate_middle("implement-the-theme-picker", 12),
+            "implem…icker"
+        );
     }
 
     #[test]

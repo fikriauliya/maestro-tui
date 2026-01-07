@@ -26,6 +26,16 @@ pub enum Dialog {
     UncommittedChanges { branch: String },
 }
 
+/// Pane focus for control panel (content vs Claude terminal)
+#[derive(Default, PartialEq, Clone, Copy, Debug)]
+pub enum ControlPanelPane {
+    /// Content area (worktrees, bd ready, input)
+    #[default]
+    Content,
+    /// Claude terminal pane
+    Claude,
+}
+
 /// The kind of tab - control panel or worktree terminal
 #[derive(Debug, Clone, PartialEq)]
 pub enum TabKind {
@@ -34,6 +44,8 @@ pub enum TabKind {
         input: String,
         /// Output from `bd ready` command
         bd_ready_output: Vec<String>,
+        /// Which pane is focused in the control panel
+        focused_pane: ControlPanelPane,
     },
     /// Worktree tab with dual terminal panes
     Worktree {
@@ -78,6 +90,10 @@ pub struct Tab {
     pub pair: TerminalPair,
     /// Diff viewer for worktree tabs (replaces left terminal)
     pub diff_viewer: Option<DiffViewer>,
+    /// Claude terminal for control panel tab
+    pub claude_terminal: Option<Terminal>,
+    /// Last size of claude terminal area (for resize detection)
+    claude_terminal_size: Option<(u16, u16)>,
 }
 
 impl Tab {
@@ -86,10 +102,13 @@ impl Tab {
             kind: TabKind::ControlPanel {
                 input: String::new(),
                 bd_ready_output: Vec::new(),
+                focused_pane: ControlPanelPane::Content,
             },
             focused: Pane::Left,
             pair: TerminalPair::new(),
             diff_viewer: None,
+            claude_terminal: None,
+            claude_terminal_size: None,
         }
     }
 
@@ -99,10 +118,13 @@ impl Tab {
             kind: TabKind::ControlPanel {
                 input: String::new(),
                 bd_ready_output: Vec::new(),
+                focused_pane: ControlPanelPane::Content,
             },
             focused: Pane::Left,
             pair: TerminalPair::new(),
             diff_viewer: None,
+            claude_terminal: None,
+            claude_terminal_size: None,
         }
     }
 
@@ -118,6 +140,8 @@ impl Tab {
             focused: Pane::Right,
             pair: TerminalPair::new(),
             diff_viewer,
+            claude_terminal: None,
+            claude_terminal_size: None,
         }
     }
 
@@ -226,6 +250,67 @@ impl Tab {
         {
             term.resize(cols, rows);
             self.pair.update_right_size(area);
+        }
+    }
+
+    /// Ensure Claude terminal exists for control panel and is properly sized.
+    /// Creates a Claude terminal if needed, or resizes if dimensions changed.
+    pub fn ensure_claude_terminal(&mut self, area: Rect) {
+        let inner = inner_area(area);
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
+
+        let needs_create = self.claude_terminal.is_none()
+            || self.claude_terminal_size != Some((area.width, area.height));
+
+        if needs_create && self.claude_terminal.is_none() {
+            // Create new Claude terminal
+            if let Ok(term) = Terminal::with_command(inner.width, inner.height, "claude", &[]) {
+                self.claude_terminal = Some(term);
+                self.claude_terminal_size = Some((area.width, area.height));
+            }
+        } else if let Some((old_w, old_h)) = self.claude_terminal_size
+            && (old_w != area.width || old_h != area.height)
+            && let Some(ref mut term) = self.claude_terminal
+        {
+            // Resize existing terminal
+            term.resize(inner.width, inner.height);
+            self.claude_terminal_size = Some((area.width, area.height));
+        }
+    }
+
+    /// Get the control panel focused pane
+    pub fn control_panel_pane(&self) -> ControlPanelPane {
+        match &self.kind {
+            TabKind::ControlPanel { focused_pane, .. } => *focused_pane,
+            _ => ControlPanelPane::Content,
+        }
+    }
+
+    /// Set the control panel focused pane
+    pub fn set_control_panel_pane(&mut self, pane: ControlPanelPane) {
+        if let TabKind::ControlPanel {
+            ref mut focused_pane,
+            ..
+        } = self.kind
+        {
+            *focused_pane = pane;
+        }
+    }
+
+    /// Toggle control panel pane focus
+    #[allow(dead_code)]
+    pub fn toggle_control_panel_pane(&mut self) {
+        if let TabKind::ControlPanel {
+            ref mut focused_pane,
+            ..
+        } = self.kind
+        {
+            *focused_pane = match focused_pane {
+                ControlPanelPane::Content => ControlPanelPane::Claude,
+                ControlPanelPane::Claude => ControlPanelPane::Content,
+            };
         }
     }
 }

@@ -871,7 +871,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_create_worktree_succeeds() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -879,7 +879,13 @@ branch refs/heads/feature
             success_output("/tmp/test-project\n"),
         );
         git.set_raw_response(
-            &["worktree", "add", "-b", "feature-x", "/tmp/test-project.feature-x"],
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "feature-x",
+                "/tmp/test-project.feature-x",
+            ],
             success_output(""),
         );
 
@@ -896,7 +902,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_remove_returns_not_merged_warning() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -917,15 +923,9 @@ branch refs/heads/feature
             ),
         );
         // Check merged - returns empty (not merged)
-        git.set_raw_response(
-            &["branch", "--merged", "main"],
-            success_output("  main\n"),
-        );
+        git.set_raw_response(&["branch", "--merged", "main"], success_output("  main\n"));
         // Check uncommitted changes - clean
-        git.set_raw_response(
-            &["status", "--porcelain"],
-            success_output(""),
-        );
+        git.set_raw_response(&["status", "--porcelain"], success_output(""));
 
         let manager = WorktreeManager::with_backend(git).unwrap();
         let warnings = manager.remove("feature", false).unwrap();
@@ -939,7 +939,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_remove_returns_uncommitted_changes_warning() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -978,7 +978,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_remove_with_force_proceeds() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -998,10 +998,7 @@ branch refs/heads/feature
             ),
         );
         // Not merged
-        git.set_raw_response(
-            &["branch", "--merged", "main"],
-            success_output("  main\n"),
-        );
+        git.set_raw_response(&["branch", "--merged", "main"], success_output("  main\n"));
         // Has changes
         git.set_raw_response(
             &["status", "--porcelain"],
@@ -1009,7 +1006,12 @@ branch refs/heads/feature
         );
         // Force remove succeeds
         git.set_raw_response(
-            &["worktree", "remove", "--force", "/home/user/project.feature"],
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                "/home/user/project.feature",
+            ],
             success_output(""),
         );
 
@@ -1024,7 +1026,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_get_ahead_behind_returns_counts() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -1051,7 +1053,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_get_ahead_behind_main_branch_is_zero() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -1074,7 +1076,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_merge_with_custom_message() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -1087,10 +1089,7 @@ branch refs/heads/feature
             success_output("abc123\n"),
         );
         // Checkout main
-        git.set_raw_response(
-            &["checkout", "main"],
-            success_output(""),
-        );
+        git.set_raw_response(&["checkout", "main"], success_output(""));
         // Merge with message
         git.set_raw_response(
             &["merge", "feature", "-m", "Custom merge message"],
@@ -1105,7 +1104,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_merge_without_message() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -1116,14 +1115,8 @@ branch refs/heads/feature
             &["rev-parse", "--verify", "main"],
             success_output("abc123\n"),
         );
-        git.set_raw_response(
-            &["checkout", "main"],
-            success_output(""),
-        );
-        git.set_raw_response(
-            &["merge", "feature"],
-            success_output(""),
-        );
+        git.set_raw_response(&["checkout", "main"], success_output(""));
+        git.set_raw_response(&["merge", "feature"], success_output(""));
 
         let manager = WorktreeManager::with_backend(git).unwrap();
         let result = manager.merge("feature", None);
@@ -1135,7 +1128,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_list_with_status_includes_dirty_and_ahead_behind() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -1155,10 +1148,7 @@ branch refs/heads/feature
             ),
         );
         // Main is clean
-        git.set_raw_response(
-            &["status", "--porcelain"],
-            success_output(""),
-        );
+        git.set_raw_response(&["status", "--porcelain"], success_output(""));
         // Check main branch exists
         git.set_raw_response(
             &["rev-parse", "--verify", "main"],
@@ -1196,9 +1186,15 @@ branch refs/heads/feature
 
     #[test]
     fn test_remove_warning_equality() {
-        let w1 = RemoveWarning::NotMerged { branch: "test".to_string() };
-        let w2 = RemoveWarning::NotMerged { branch: "test".to_string() };
-        let w3 = RemoveWarning::NotMerged { branch: "other".to_string() };
+        let w1 = RemoveWarning::NotMerged {
+            branch: "test".to_string(),
+        };
+        let w2 = RemoveWarning::NotMerged {
+            branch: "test".to_string(),
+        };
+        let w3 = RemoveWarning::NotMerged {
+            branch: "other".to_string(),
+        };
         let w4 = RemoveWarning::UncommittedChanges;
 
         assert_eq!(w1, w2);

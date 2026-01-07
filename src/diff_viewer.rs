@@ -493,10 +493,7 @@ mod tests {
     #[test]
     fn test_widget_scroll_beyond_content() {
         let mut viewer = create_test_viewer();
-        viewer.set_lines_for_test(vec![
-            Line::from("line 1"),
-            Line::from("line 2"),
-        ]);
+        viewer.set_lines_for_test(vec![Line::from("line 1"), Line::from("line 2")]);
         viewer.scroll_offset = 10; // Beyond content
 
         // Should not panic, returns empty
@@ -550,11 +547,7 @@ mod tests {
         let mut viewer = create_test_viewer();
         assert_eq!(viewer.get_total_lines(), 0);
 
-        viewer.set_lines_for_test(vec![
-            Line::from("a"),
-            Line::from("b"),
-            Line::from("c"),
-        ]);
+        viewer.set_lines_for_test(vec![Line::from("a"), Line::from("b"), Line::from("c")]);
         assert_eq!(viewer.get_total_lines(), 3);
     }
 }
