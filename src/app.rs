@@ -205,9 +205,10 @@ impl Tab {
             Pane::Left => {
                 // Scroll diff viewer
                 if let Some(ref mut dv) = self.diff_viewer {
-                    // Convert: positive lines = scroll up (show older), negative = scroll down (show newer)
-                    // For diff viewer: positive delta scrolls down in the view
-                    dv.scroll(lines as i16);
+                    // Terminal uses: positive = up (older), negative = down (newer)
+                    // DiffViewer uses: positive = down (later lines), negative = up (earlier lines)
+                    // So we negate to match terminal convention
+                    dv.scroll(-lines as i16);
                 }
             }
             Pane::Right => {
@@ -1047,5 +1048,22 @@ mod tests {
         assert_eq!(tab.worktree_path(), Some(&PathBuf::from("/tmp/test")));
         assert_eq!(tab.branch(), Some("feature"));
         assert_eq!(tab.worktree_prompt(), Some("my prompt"));
+    }
+
+    // Alt+u/d scroll tests
+    #[test]
+    fn test_alt_u_returns_scroll_up() {
+        assert_eq!(
+            handle_key(&make_alt_key(KeyCode::Char('u'))),
+            Some(Command::ScrollUp)
+        );
+    }
+
+    #[test]
+    fn test_alt_d_returns_scroll_down() {
+        assert_eq!(
+            handle_key(&make_alt_key(KeyCode::Char('d'))),
+            Some(Command::ScrollDown)
+        );
     }
 }
