@@ -115,7 +115,7 @@ impl Tab {
                 branch,
                 prompt,
             },
-            focused: Pane::Left,
+            focused: Pane::Right,
             pair: TerminalPair::new(),
             diff_viewer,
         }
