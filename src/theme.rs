@@ -199,13 +199,7 @@ pub const GRUVBOX_DARK: Theme = Theme {
 };
 
 /// All available themes
-pub const ALL_THEMES: &[Theme] = &[
-    FLEXOKI_DARK,
-    DRACULA,
-    NORD,
-    CATPPUCCIN_MOCHA,
-    GRUVBOX_DARK,
-];
+pub const ALL_THEMES: &[Theme] = &[FLEXOKI_DARK, DRACULA, NORD, CATPPUCCIN_MOCHA, GRUVBOX_DARK];
 
 /// Get the default theme
 pub fn default_theme() -> Theme {

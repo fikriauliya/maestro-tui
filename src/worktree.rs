@@ -218,8 +218,11 @@ impl<G: GitBackend> WorktreeManager<G> {
 
     /// List all worktrees for this repository
     pub fn list(&self) -> Result<Vec<Worktree>> {
-        self.list_all()
-            .map(|wts| wts.into_iter().filter(|wt| !Self::is_excluded(wt)).collect())
+        self.list_all().map(|wts| {
+            wts.into_iter()
+                .filter(|wt| !Self::is_excluded(wt))
+                .collect()
+        })
     }
 
     /// List all worktrees including excluded ones (like beads-sync)

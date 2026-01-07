@@ -8,7 +8,7 @@ use crate::diff_viewer::DiffViewer;
 use crate::input::key_to_bytes;
 use crate::terminal::Terminal;
 use crate::terminal_pair::TerminalPair;
-use crate::theme::{default_theme, Theme, ALL_THEMES};
+use crate::theme::{ALL_THEMES, Theme, default_theme};
 use crate::worktree::{WorktreeManager, WorktreeStatus};
 
 #[derive(Default, PartialEq, Clone, Copy, Debug)]
@@ -43,7 +43,7 @@ pub enum ControlPanelPane {
     Claude,
 }
 
-/// Focus within the Content pane (input field vs worktrees list)
+/// Focus within the Content pane (input field, worktrees list, or ready issues)
 #[derive(Default, PartialEq, Clone, Copy, Debug)]
 pub enum ContentFocus {
     /// New task input field
@@ -51,6 +51,8 @@ pub enum ContentFocus {
     Input,
     /// Worktrees list
     Worktrees,
+    /// Ready Issues list
+    ReadyIssues,
 }
 
 /// The kind of tab - control panel or worktree terminal
@@ -65,7 +67,9 @@ pub enum TabKind {
         focused_pane: ControlPanelPane,
         /// Currently selected worktree index (for merge/remove operations)
         selected_worktree: usize,
-        /// Focus within the content pane (input vs worktrees)
+        /// Currently selected issue index (for task creation)
+        selected_issue: usize,
+        /// Focus within the content pane (input, worktrees, or ready issues)
         content_focus: ContentFocus,
     },
     /// Worktree tab with dual terminal panes
@@ -139,6 +143,7 @@ impl Tab {
                 bd_ready_output: Vec::new(),
                 focused_pane: ControlPanelPane::Content,
                 selected_worktree: 0,
+                selected_issue: 0,
                 content_focus: ContentFocus::default(),
             },
             focused: Pane::Left,
@@ -157,6 +162,7 @@ impl Tab {
                 bd_ready_output: Vec::new(),
                 focused_pane: ControlPanelPane::Content,
                 selected_worktree: 0,
+                selected_issue: 0,
                 content_focus: ContentFocus::default(),
             },
             focused: Pane::Left,
@@ -407,6 +413,38 @@ impl Tab {
             *selected_worktree += 1;
         }
     }
+
+    /// Get the selected issue index (for control panel)
+    pub fn selected_issue(&self) -> usize {
+        match &self.kind {
+            TabKind::ControlPanel { selected_issue, .. } => *selected_issue,
+            _ => 0,
+        }
+    }
+
+    /// Select previous issue in the list
+    pub fn select_prev_issue(&mut self) {
+        if let TabKind::ControlPanel {
+            ref mut selected_issue,
+            ..
+        } = self.kind
+        {
+            *selected_issue = selected_issue.saturating_sub(1);
+        }
+    }
+
+    /// Select next issue in the list (needs max count)
+    pub fn select_next_issue(&mut self, max_count: usize) {
+        if let TabKind::ControlPanel {
+            ref mut selected_issue,
+            ..
+        } = self.kind
+            && max_count > 0
+            && *selected_issue < max_count - 1
+        {
+            *selected_issue += 1;
+        }
+    }
 }
 
 impl Default for Tab {
@@ -462,7 +500,10 @@ impl App {
 
     /// Get current theme index in ALL_THEMES
     pub fn theme_index(&self) -> usize {
-        ALL_THEMES.iter().position(|t| t.name == self.theme.name).unwrap_or(0)
+        ALL_THEMES
+            .iter()
+            .position(|t| t.name == self.theme.name)
+            .unwrap_or(0)
     }
 
     /// Set theme by index
@@ -547,7 +588,9 @@ impl App {
                 // Handled in event handler's process_dialog_key
             }
             Command::OpenThemePicker => {
-                self.dialog = Dialog::ThemePicker { selected: self.theme_index() };
+                self.dialog = Dialog::ThemePicker {
+                    selected: self.theme_index(),
+                };
             }
             Command::ThemePickerUp => {
                 if let Dialog::ThemePicker { ref mut selected } = self.dialog {

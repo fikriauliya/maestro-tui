@@ -14,7 +14,7 @@ use ratatui::{
 use ratatui::style::Color;
 
 use crate::app::{App, ContentFocus, ControlPanelPane, Dialog, Pane, TabKind, inner_area};
-use crate::theme::{self, Theme, ALL_THEMES};
+use crate::theme::{self, ALL_THEMES, Theme};
 
 /// Render the entire application UI.
 /// Returns (tab_area, quit_button_x, main_area) for click detection.
@@ -135,7 +135,13 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
 
 /// Render the content portion of the control panel (left side).
 /// Layout: Input (top) -> Worktrees (middle) -> Ready Issues (bottom)
-fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
+fn render_control_panel_content(
+    app: &App,
+    frame: &mut Frame,
+    area: Rect,
+    is_focused: bool,
+    theme: &Theme,
+) {
     // Split into three sections: Input (top), Worktrees (middle), Issues (bottom)
     let [input_area, worktrees_area, issues_area] = Layout::vertical([
         Constraint::Length(3),  // Input field
@@ -146,8 +152,9 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
 
     // Get content focus state for sub-pane highlighting
     let content_focus = app.current_tab().content_focus();
-    let worktrees_focused = is_focused && content_focus == ContentFocus::Worktrees;
     let input_focused = is_focused && content_focus == ContentFocus::Input;
+    let worktrees_focused = is_focused && content_focus == ContentFocus::Worktrees;
+    let issues_focused = is_focused && content_focus == ContentFocus::ReadyIssues;
 
     // Render input field (top)
     render_input_pane(app, frame, input_area, input_focused, theme);
@@ -156,7 +163,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     render_worktrees_pane(app, frame, worktrees_area, worktrees_focused, theme);
 
     // Render ready issues pane (bottom)
-    render_issues_pane(app, frame, issues_area, theme);
+    render_issues_pane(app, frame, issues_area, issues_focused, theme);
 }
 
 /// Render the input field for creating new worktree tasks.
@@ -181,7 +188,13 @@ fn render_input_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: bool,
 }
 
 /// Render the worktrees selection pane.
-fn render_worktrees_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
+fn render_worktrees_pane(
+    app: &App,
+    frame: &mut Frame,
+    area: Rect,
+    is_focused: bool,
+    theme: &Theme,
+) {
     let block = Block::bordered()
         .title("Worktrees (j/k to navigate, Enter for actions)")
         .border_style(Style::default().fg(theme.border_color(is_focused)));
@@ -253,12 +266,13 @@ fn render_worktrees_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: b
 }
 
 /// Render the ready issues pane.
-fn render_issues_pane(app: &App, frame: &mut Frame, area: Rect, theme: &Theme) {
+fn render_issues_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
     let block = Block::bordered()
-        .title("Ready Issues [Alt+b to reload]")
-        .border_style(Style::default().fg(theme.border_color(false)));
+        .title("Ready Issues (j/k, Enter to create task) [Alt+b reload]")
+        .border_style(Style::default().fg(theme.border_color(is_focused)));
 
     let bd_ready_output = app.get_bd_ready_output();
+    let selected_idx = app.current_tab().selected_issue();
 
     let mut lines = Vec::new();
 
@@ -269,24 +283,42 @@ fn render_issues_pane(app: &App, frame: &mut Frame, area: Rect, theme: &Theme) {
         )));
     } else {
         // Skip the header line if present (starts with emoji or "Ready work")
+        let mut issue_idx = 0;
         for line in bd_ready_output.iter() {
             let trimmed = line.trim();
             // Skip empty lines and the header line
             if trimmed.is_empty() || trimmed.starts_with("📋") {
                 continue;
             }
-            // Display issue lines with some styling
-            let styled_line = if trimmed.starts_with("[P0]") || trimmed.contains("[P0]") {
+
+            let is_selected = issue_idx == selected_idx && is_focused;
+
+            // Build the line with selection indicator
+            let prefix = if is_selected { " > " } else { "   " };
+
+            // Display issue lines with priority styling
+            let base_style = if trimmed.contains("[P0]") {
                 // Critical priority - red
-                Span::styled(format!(" {}", trimmed), Style::default().fg(theme.accents.red))
-            } else if trimmed.starts_with("[P1]") || trimmed.contains("[P1]") {
+                Style::default().fg(theme.accents.red)
+            } else if trimmed.contains("[P1]") {
                 // High priority - orange
-                Span::styled(format!(" {}", trimmed), Style::default().fg(theme.accents.orange))
+                Style::default().fg(theme.accents.orange)
             } else {
                 // Normal priority
-                Span::raw(format!(" {}", trimmed))
+                Style::default()
             };
-            lines.push(Line::from(styled_line));
+
+            let style = if is_selected {
+                base_style.fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                base_style
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw(prefix),
+                Span::styled(trimmed, style),
+            ]));
+            issue_idx += 1;
         }
     }
 
@@ -395,7 +427,9 @@ fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) 
                     Span::raw(" to merge, "),
                     Span::styled(
                         "R",
-                        Style::default().fg(theme.accents.red).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme.accents.red)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" to remove, "),
                     Span::styled(
@@ -422,7 +456,9 @@ fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) 
             for (i, t) in ALL_THEMES.iter().enumerate() {
                 let indicator = if i == *selected { "▸ " } else { "  " };
                 let style = if i == *selected {
-                    Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(theme.tx)
                 };
@@ -450,7 +486,12 @@ fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) 
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  Delete worktree "),
-                    Span::styled(branch, Style::default().fg(theme.accents.cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        branch,
+                        Style::default()
+                            .fg(theme.accents.cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw("?"),
                 ]),
             ];
@@ -464,9 +505,19 @@ fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) 
             content.push(Line::from(""));
             content.push(Line::from(vec![
                 Span::raw("  Press "),
-                Span::styled("Y", Style::default().fg(theme.accents.green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Y",
+                    Style::default()
+                        .fg(theme.accents.green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" to confirm, "),
-                Span::styled("N", Style::default().fg(theme.accents.red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "N",
+                    Style::default()
+                        .fg(theme.accents.red)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" to cancel"),
             ]));
             ("Delete Worktree", content, theme.accents.red)
@@ -476,7 +527,12 @@ fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) 
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  Cannot delete "),
-                    Span::styled(branch, Style::default().fg(theme.accents.cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        branch,
+                        Style::default()
+                            .fg(theme.accents.cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 ]),
                 Line::from(""),
                 Line::from(Span::styled(

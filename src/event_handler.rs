@@ -11,7 +11,9 @@ use crate::app::{
     handle_key,
 };
 use crate::input::key_to_bytes;
-use crate::worktree::{RemoveWarning, WorktreeManager, generate_branch_name, generate_rebase_prompt};
+use crate::worktree::{
+    RemoveWarning, WorktreeManager, generate_branch_name, generate_rebase_prompt,
+};
 
 /// Result of handling an event.
 pub enum KeyAction {
@@ -129,17 +131,29 @@ pub fn process_control_panel_key(
         }
     }
 
-    // Handle Alt+j/k for navigating between input and worktrees within content pane
+    // Handle Alt+j/k for navigating between panes within content area
     if key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
             KeyCode::Char('j') => {
-                // Move focus down: Input -> Worktrees
-                app.current_tab_mut().set_content_focus(ContentFocus::Worktrees);
+                // Move focus down: Input -> Worktrees -> ReadyIssues
+                let current = app.current_tab().content_focus();
+                let next = match current {
+                    ContentFocus::Input => ContentFocus::Worktrees,
+                    ContentFocus::Worktrees => ContentFocus::ReadyIssues,
+                    ContentFocus::ReadyIssues => ContentFocus::ReadyIssues, // Stay at bottom
+                };
+                app.current_tab_mut().set_content_focus(next);
                 return KeyAction::Continue;
             }
             KeyCode::Char('k') => {
-                // Move focus up: Worktrees -> Input
-                app.current_tab_mut().set_content_focus(ContentFocus::Input);
+                // Move focus up: ReadyIssues -> Worktrees -> Input
+                let current = app.current_tab().content_focus();
+                let next = match current {
+                    ContentFocus::ReadyIssues => ContentFocus::Worktrees,
+                    ContentFocus::Worktrees => ContentFocus::Input,
+                    ContentFocus::Input => ContentFocus::Input, // Stay at top
+                };
+                app.current_tab_mut().set_content_focus(next);
                 return KeyAction::Continue;
             }
             _ => {}
@@ -213,6 +227,30 @@ pub fn process_control_panel_key(
                         _ => {}
                     }
                 }
+                ContentFocus::ReadyIssues => {
+                    // Ready issues list is focused - handle navigation and task creation
+                    let issue_count = get_issue_count(app);
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app.current_tab_mut().select_prev_issue();
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            app.current_tab_mut().select_next_issue(issue_count);
+                        }
+                        KeyCode::Enter => {
+                            // Create new task with selected issue title as prompt
+                            if let Some(issue_title) = get_selected_issue_title(app)
+                                && let Some(manager) = wt_manager
+                            {
+                                let branch = generate_branch_name(&issue_title);
+                                if let Ok(wt) = manager.create(&branch, Some(&issue_title)) {
+                                    app.add_worktree_tab(wt.path.clone(), branch, issue_title);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         ControlPanelPane::Claude => {
@@ -257,6 +295,42 @@ fn get_selected_worktree_branch(app: &App, wt_manager: &Option<WorktreeManager>)
     worktrees
         .get(selected_idx)
         .and_then(|s| s.worktree.branch.clone())
+}
+
+/// Get the count of ready issues (excluding header and empty lines).
+fn get_issue_count(app: &App) -> usize {
+    parse_issue_lines(app.get_bd_ready_output()).len()
+}
+
+/// Get the title of the selected ready issue.
+fn get_selected_issue_title(app: &App) -> Option<String> {
+    let issues = parse_issue_lines(app.get_bd_ready_output());
+    let selected_idx = app.current_tab().selected_issue();
+    issues.get(selected_idx).map(|s| extract_issue_title(s))
+}
+
+/// Parse bd ready output to get just the issue lines (skip header and empty lines).
+fn parse_issue_lines(output: &[String]) -> Vec<&str> {
+    output
+        .iter()
+        .map(|s| s.trim())
+        .filter(|line| {
+            !line.is_empty() && !line.starts_with("📋") && !line.starts_with("Ready work")
+        })
+        .collect()
+}
+
+/// Extract the issue title from a bd ready line.
+/// Input format: "1. [P0] [task] maestro-tui-xg1: Auto-accept Claude Code trust folder prompt"
+/// Output: "Auto-accept Claude Code trust folder prompt"
+fn extract_issue_title(line: &str) -> String {
+    // Find the colon after the issue ID and extract everything after it
+    if let Some(colon_pos) = line.find(':') {
+        line[colon_pos + 1..].trim().to_string()
+    } else {
+        // Fallback: use the whole line
+        line.to_string()
+    }
 }
 
 /// Find the tab index for a given branch name.
