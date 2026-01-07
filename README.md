@@ -35,17 +35,6 @@ curl -fsSL https://raw.githubusercontent.com/fikriauliya/maestro-tui/refs/heads/
 cargo install maestro-tui
 ```
 
-### From GitHub Releases
-
-Download the latest binary from [GitHub Releases](https://github.com/fikriauliya/maestro-tui/releases):
-
-```bash
-# Linux x86_64
-curl -LO https://github.com/fikriauliya/maestro-tui/releases/latest/download/maestro-tui-x86_64-unknown-linux-gnu.tar.gz
-tar xzf maestro-tui-x86_64-unknown-linux-gnu.tar.gz
-sudo mv maestro-tui mae /usr/local/bin/
-```
-
 ### Prerequisites
 
 - [Claude Code](https://claude.ai/code) installed and configured
