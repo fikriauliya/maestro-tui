@@ -619,11 +619,11 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
     // Check for Alt+key shortcuts (all app shortcuts use Alt)
     if key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
-            // Alt+0 switches to tab 0 (control panel)
-            KeyCode::Char('0') => return Some(Command::SwitchTab(0)),
-            // Alt+1-9 switches to tabs 1-9
-            KeyCode::Char(c @ '1'..='9') => {
-                let tab_idx = (c as usize) - ('0' as usize);
+            // Alt+1 switches to tab 0 (control panel)
+            KeyCode::Char('1') => return Some(Command::SwitchTab(0)),
+            // Alt+2-9 switches to tabs 1-8
+            KeyCode::Char(c @ '2'..='9') => {
+                let tab_idx = (c as usize) - ('0' as usize) - 1;
                 return Some(Command::SwitchTab(tab_idx));
             }
             // Alt+h focuses left pane
@@ -763,22 +763,28 @@ mod tests {
     // handle_key tests (all shortcuts use Alt)
     #[test]
     fn test_alt_switch_tab() {
-        assert_eq!(
-            handle_key(&make_alt_key(KeyCode::Char('0'))),
-            Some(Command::SwitchTab(0))
-        );
+        // Alt+1 switches to control panel (tab 0)
         assert_eq!(
             handle_key(&make_alt_key(KeyCode::Char('1'))),
+            Some(Command::SwitchTab(0))
+        );
+        // Alt+2 switches to first worktree tab (tab 1)
+        assert_eq!(
+            handle_key(&make_alt_key(KeyCode::Char('2'))),
             Some(Command::SwitchTab(1))
         );
+        // Alt+5 switches to tab 4
         assert_eq!(
             handle_key(&make_alt_key(KeyCode::Char('5'))),
-            Some(Command::SwitchTab(5))
+            Some(Command::SwitchTab(4))
         );
+        // Alt+9 switches to tab 8
         assert_eq!(
             handle_key(&make_alt_key(KeyCode::Char('9'))),
-            Some(Command::SwitchTab(9))
+            Some(Command::SwitchTab(8))
         );
+        // Alt+0 should not switch tabs (no longer mapped)
+        assert_eq!(handle_key(&make_alt_key(KeyCode::Char('0'))), None);
     }
 
     #[test]

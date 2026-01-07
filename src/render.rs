@@ -50,7 +50,7 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
                     theme.inactive_control_tab_colors()
                 };
                 let style = Style::default().fg(fg).bg(bg);
-                tab_spans.push(Span::styled(" 0 Control ", style));
+                tab_spans.push(Span::styled(" 1 Control ", style));
             }
             TabKind::Worktree { path, branch, .. } => {
                 // Worktree tabs use accent color
@@ -60,8 +60,8 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
                     theme.inactive_tab_colors()
                 };
                 let style = Style::default().fg(fg).bg(bg);
-                // Add tab index and branch name (already short from Claude-generated names)
-                tab_spans.push(Span::styled(format!(" {} {} ", i, branch), style));
+                // Add tab index and branch name (display index = internal index + 1)
+                tab_spans.push(Span::styled(format!(" {} {} ", i + 1, branch), style));
 
                 // Add dirty indicator if available (ahead/behind shown in control pane)
                 if let Some(status) = worktree_statuses.get(path)
