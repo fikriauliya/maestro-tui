@@ -129,8 +129,8 @@ pub fn process_control_panel_key(
         }
     }
 
-    // Handle Ctrl+j/k for navigating between input and worktrees within content pane
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
+    // Handle Alt+j/k for navigating between input and worktrees within content pane
+    if key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
             KeyCode::Char('j') => {
                 // Move focus down: Input -> Worktrees
