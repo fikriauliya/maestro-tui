@@ -205,8 +205,17 @@ impl<G: GitBackend> WorktreeManager<G> {
         parent.join(format!("{}.{}", self.repo_name, branch))
     }
 
+    /// Branches that should be excluded from worktree listings
+    const EXCLUDED_BRANCHES: &'static [&'static str] = &["beads-sync"];
+
     /// List all worktrees for this repository
     pub fn list(&self) -> Result<Vec<Worktree>> {
+        self.list_all()
+            .map(|wts| wts.into_iter().filter(|wt| !Self::is_excluded(wt)).collect())
+    }
+
+    /// List all worktrees including excluded ones (like beads-sync)
+    pub fn list_all(&self) -> Result<Vec<Worktree>> {
         let output = self
             .git
             .execute(&["worktree", "list", "--porcelain"])
@@ -221,6 +230,15 @@ impl<G: GitBackend> WorktreeManager<G> {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_worktree_list(&stdout)
+    }
+
+    /// Check if a worktree should be excluded from normal listings
+    fn is_excluded(wt: &Worktree) -> bool {
+        if let Some(ref branch) = wt.branch {
+            Self::EXCLUDED_BRANCHES.contains(&branch.as_str())
+        } else {
+            false
+        }
     }
 
     /// Create a new worktree with a new branch
@@ -784,6 +802,45 @@ branch refs/heads/dev
         assert_eq!(worktrees.len(), 2);
         assert_eq!(worktrees[0].branch, Some("main".to_string()));
         assert_eq!(worktrees[1].branch, Some("dev".to_string()));
+    }
+
+    #[test]
+    fn test_list_excludes_beads_sync() {
+        use mock::{MockGit, success_output};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        git.set_raw_response(
+            &["worktree", "list", "--porcelain"],
+            success_output(
+                "\
+worktree /home/user/project
+branch refs/heads/main
+
+worktree /home/user/project.feature
+branch refs/heads/feature
+
+worktree /home/user/project/.git/beads-worktrees/beads-sync
+branch refs/heads/beads-sync
+",
+            ),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+
+        // list() should exclude beads-sync
+        let worktrees = manager.list().unwrap();
+        assert_eq!(worktrees.len(), 2);
+        assert_eq!(worktrees[0].branch, Some("main".to_string()));
+        assert_eq!(worktrees[1].branch, Some("feature".to_string()));
+
+        // list_all() should include beads-sync
+        let all_worktrees = manager.list_all().unwrap();
+        assert_eq!(all_worktrees.len(), 3);
+        assert_eq!(all_worktrees[2].branch, Some("beads-sync".to_string()));
     }
 
     #[test]
