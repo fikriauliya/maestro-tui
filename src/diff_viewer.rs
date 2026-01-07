@@ -1,6 +1,7 @@
 //! Git diff viewer module
 //!
-//! Provides a real-time git diff viewer that shows changes sorted by file modification time.
+//! Provides a real-time git diff viewer that shows changes between the current branch and main,
+//! sorted by file modification time.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -107,10 +108,11 @@ impl DiffViewer {
     // --- Private methods ---
 
     /// Get a hash of the current diff state (for change detection)
+    /// Compares current branch against main to show branch changes
     fn get_diff_hash(&self) -> u64 {
         let output = Command::new("git")
             .current_dir(&self.worktree_path)
-            .args(["diff", "--stat"])
+            .args(["diff", "main...HEAD", "--stat"])
             .output();
 
         match output {
@@ -124,10 +126,11 @@ impl DiffViewer {
     }
 
     /// Get list of changed files sorted by modification time (oldest first)
+    /// Compares current branch against main to show branch changes
     fn get_changed_files_sorted(&self) -> Vec<String> {
         let output = Command::new("git")
             .current_dir(&self.worktree_path)
-            .args(["diff", "--name-only"])
+            .args(["diff", "main...HEAD", "--name-only"])
             .output();
 
         let files: Vec<String> = match output {
@@ -157,10 +160,11 @@ impl DiffViewer {
     }
 
     /// Get diff for a specific file
+    /// Compares current branch against main to show branch changes
     fn get_file_diff(&self, file: &str) -> String {
         let output = Command::new("git")
             .current_dir(&self.worktree_path)
-            .args(["diff", "--", file])
+            .args(["diff", "main...HEAD", "--", file])
             .output();
 
         match output {
@@ -209,16 +213,16 @@ impl DiffViewer {
             Line::from(""),
             Line::from(""),
             Line::from(Span::styled(
-                "   No uncommitted changes",
+                "   No changes from main",
                 Style::default().fg(theme::TX_2),
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "   Changes will appear here",
+                "   Branch changes will appear",
                 Style::default().fg(theme::TX_3),
             )),
             Line::from(Span::styled(
-                "   as you work.",
+                "   here as you work.",
                 Style::default().fg(theme::TX_3),
             )),
         ]
@@ -523,8 +527,8 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .map(|s| s.content.as_ref())
             .collect();
-        assert!(all_text.contains("No uncommitted changes"));
-        assert!(all_text.contains("Changes will appear here"));
+        assert!(all_text.contains("No changes from main"));
+        assert!(all_text.contains("Branch changes will appear"));
     }
 
     #[test]
