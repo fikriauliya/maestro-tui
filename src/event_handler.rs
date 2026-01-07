@@ -85,6 +85,10 @@ pub fn process_dialog_key(app: &mut App, key: &KeyEvent, wt_manager: &Option<Wor
                 Dialog::ThemePicker { .. } | Dialog::WorktreeAction { .. } | Dialog::None => {}
             }
         }
+        // Theme picker commands are handled by app.execute()
+        Command::ThemePickerUp | Command::ThemePickerDown | Command::ThemePickerConfirm => {
+            app.execute(cmd);
+        }
         _ => {}
     }
 }
