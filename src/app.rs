@@ -20,6 +20,8 @@ pub enum Pane {
 pub enum Dialog {
     /// No dialog shown
     None,
+    /// Choose action for worktree (merge or remove)
+    WorktreeAction { branch: String },
     /// Confirm delete worktree (branch name, has unmerged commits)
     ConfirmDelete { branch: String, unmerged: bool },
     /// Cannot delete: has uncommitted changes
@@ -86,6 +88,10 @@ pub enum Command {
     /// Select next worktree in control panel list
     #[allow(dead_code)]
     SelectNextWorktree,
+    /// Merge worktree (from WorktreeAction dialog)
+    DialogMerge,
+    /// Remove worktree (from WorktreeAction dialog)
+    DialogRemove,
 }
 
 pub struct Tab {
@@ -448,6 +454,9 @@ impl App {
             Command::SelectPrevWorktree | Command::SelectNextWorktree => {
                 // Handled directly in event handler (needs worktree count)
             }
+            Command::DialogMerge | Command::DialogRemove => {
+                // Handled in event handler's process_dialog_key
+            }
         }
     }
 
@@ -578,13 +587,33 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
 
 /// Handle a key event when a dialog is shown
 /// Returns Some(command) if the key was handled, None otherwise
-pub fn handle_dialog_key(key: &KeyEvent) -> Option<Command> {
-    match key.code {
-        // Y or Enter confirms
-        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => Some(Command::DialogConfirm),
-        // N or Escape cancels
-        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Some(Command::DialogCancel),
-        _ => None,
+pub fn handle_dialog_key(key: &KeyEvent, dialog: &Dialog) -> Option<Command> {
+    match dialog {
+        Dialog::WorktreeAction { .. } => {
+            match key.code {
+                // M for merge
+                KeyCode::Char('m') | KeyCode::Char('M') => Some(Command::DialogMerge),
+                // R for remove
+                KeyCode::Char('r') | KeyCode::Char('R') => Some(Command::DialogRemove),
+                // Escape cancels
+                KeyCode::Esc => Some(Command::DialogCancel),
+                _ => None,
+            }
+        }
+        Dialog::ConfirmDelete { .. } | Dialog::UncommittedChanges { .. } => {
+            match key.code {
+                // Y or Enter confirms
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                    Some(Command::DialogConfirm)
+                }
+                // N or Escape cancels
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    Some(Command::DialogCancel)
+                }
+                _ => None,
+            }
+        }
+        Dialog::None => None,
     }
 }
 
@@ -679,33 +708,60 @@ mod tests {
     }
 
     #[test]
-    fn test_dialog_key_confirm() {
+    fn test_dialog_key_confirm_delete() {
+        let dialog = Dialog::ConfirmDelete {
+            branch: "test".to_string(),
+            unmerged: false,
+        };
         assert_eq!(
-            handle_dialog_key(&make_key(KeyCode::Char('y'))),
+            handle_dialog_key(&make_key(KeyCode::Char('y')), &dialog),
             Some(Command::DialogConfirm)
         );
         assert_eq!(
-            handle_dialog_key(&make_key(KeyCode::Char('Y'))),
+            handle_dialog_key(&make_key(KeyCode::Char('Y')), &dialog),
             Some(Command::DialogConfirm)
         );
         assert_eq!(
-            handle_dialog_key(&make_key(KeyCode::Enter)),
+            handle_dialog_key(&make_key(KeyCode::Enter), &dialog),
             Some(Command::DialogConfirm)
         );
     }
 
     #[test]
-    fn test_dialog_key_cancel() {
+    fn test_dialog_key_cancel_delete() {
+        let dialog = Dialog::ConfirmDelete {
+            branch: "test".to_string(),
+            unmerged: false,
+        };
         assert_eq!(
-            handle_dialog_key(&make_key(KeyCode::Char('n'))),
+            handle_dialog_key(&make_key(KeyCode::Char('n')), &dialog),
             Some(Command::DialogCancel)
         );
         assert_eq!(
-            handle_dialog_key(&make_key(KeyCode::Char('N'))),
+            handle_dialog_key(&make_key(KeyCode::Char('N')), &dialog),
             Some(Command::DialogCancel)
         );
         assert_eq!(
-            handle_dialog_key(&make_key(KeyCode::Esc)),
+            handle_dialog_key(&make_key(KeyCode::Esc), &dialog),
+            Some(Command::DialogCancel)
+        );
+    }
+
+    #[test]
+    fn test_dialog_worktree_action() {
+        let dialog = Dialog::WorktreeAction {
+            branch: "test".to_string(),
+        };
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('m')), &dialog),
+            Some(Command::DialogMerge)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('r')), &dialog),
+            Some(Command::DialogRemove)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Esc), &dialog),
             Some(Command::DialogCancel)
         );
     }

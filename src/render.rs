@@ -54,10 +54,10 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
                 tab_spans.push(Span::styled(format!(" {} {} ", i, display_name), style));
 
                 // Add dirty indicator if available (ahead/behind shown in control pane)
-                if let Some(status) = worktree_statuses.get(path) {
-                    if status.is_dirty {
-                        tab_spans.push(Span::styled("●", Style::default().fg(theme::RED)));
-                    }
+                if let Some(status) = worktree_statuses.get(path)
+                    && status.is_dirty
+                {
+                    tab_spans.push(Span::styled("●", Style::default().fg(theme::RED)));
                 }
             }
         }
@@ -150,7 +150,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
 
     // List worktrees with status
     lines.push(Line::from(Span::styled(
-        "  Worktrees: (j/k to navigate, Alt+m merge, Alt+r remove)",
+        "  Worktrees: (j/k to navigate, Enter for actions)",
         Style::default().fg(Color::Cyan),
     )));
 
@@ -311,8 +311,6 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
         ("Alt+0-9", "Tabs"),
         ("Alt+h/l", "Focus"),
         ("Alt+u/d", "Scroll"),
-        ("Alt+m", "Merge"),
-        ("Alt+r", "Remove"),
         ("Alt+q", "Quit"),
     ];
 
@@ -339,6 +337,46 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
     frame.render_widget(Clear, dialog_area);
 
     let (title, lines) = match dialog {
+        Dialog::WorktreeAction { branch } => {
+            let content = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  Worktree: "),
+                    Span::styled(
+                        branch,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(""),
+                Line::from("  Choose an action:"),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("  Press "),
+                    Span::styled(
+                        "M",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" to merge, "),
+                    Span::styled(
+                        "R",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" to remove, "),
+                    Span::styled(
+                        "Esc",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" to cancel"),
+                ]),
+            ];
+            ("Worktree Action", content)
+        }
         Dialog::ConfirmDelete { branch, unmerged } => {
             let mut content = vec![
                 Line::from(""),

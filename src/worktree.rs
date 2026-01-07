@@ -1126,7 +1126,8 @@ branch refs/heads/feature
 
     #[test]
     fn test_generate_rebase_prompt() {
-        let prompt = super::generate_rebase_prompt("feature", std::path::Path::new("/tmp/project.feature"));
+        let prompt =
+            super::generate_rebase_prompt("feature", std::path::Path::new("/tmp/project.feature"));
         assert!(prompt.contains("feature"));
         assert!(prompt.contains("/tmp/project.feature"));
         assert!(prompt.contains("rebase"));

@@ -39,34 +39,53 @@ pub fn load_bd_ready() -> Vec<String> {
 
 /// Handle dialog key events.
 pub fn process_dialog_key(app: &mut App, key: &KeyEvent, wt_manager: &Option<WorktreeManager>) {
-    let Some(cmd) = handle_dialog_key(key) else {
+    let Some(cmd) = handle_dialog_key(key, &app.dialog) else {
         return;
     };
 
-    if !matches!(cmd, Command::DialogConfirm) {
-        app.execute(cmd);
-        return;
-    }
-
-    // Handle confirmation based on dialog type
-    match &app.dialog {
-        Dialog::ConfirmDelete { branch, .. } => {
-            let branch = branch.clone();
-            if let Some(manager) = wt_manager {
-                let _ = manager.remove(&branch, true);
-                // Find and remove the tab for this branch (if any)
-                if let Some(tab_idx) = app.tabs.iter().position(
-                    |tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == &branch),
-                ) {
-                    app.remove_tab(tab_idx);
-                }
+    match cmd {
+        Command::DialogCancel => {
+            app.dialog = Dialog::None;
+        }
+        Command::DialogMerge => {
+            // Handle merge action from WorktreeAction dialog
+            if let Dialog::WorktreeAction { ref branch } = app.dialog {
+                let branch = branch.clone();
+                app.dialog = Dialog::None;
+                trigger_merge_worktree(app, wt_manager, &branch);
             }
-            app.dialog = Dialog::None;
         }
-        Dialog::UncommittedChanges { .. } => {
-            app.dialog = Dialog::None;
+        Command::DialogRemove => {
+            // Handle remove action from WorktreeAction dialog
+            if let Dialog::WorktreeAction { ref branch } = app.dialog {
+                let branch = branch.clone();
+                app.dialog = Dialog::None;
+                trigger_delete_worktree(app, wt_manager, &branch);
+            }
         }
-        Dialog::None => {}
+        Command::DialogConfirm => {
+            // Handle confirmation based on dialog type
+            match &app.dialog {
+                Dialog::ConfirmDelete { branch, .. } => {
+                    let branch = branch.clone();
+                    if let Some(manager) = wt_manager {
+                        let _ = manager.remove(&branch, true);
+                        // Find and remove the tab for this branch (if any)
+                        if let Some(tab_idx) = app.tabs.iter().position(
+                            |tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == &branch),
+                        ) {
+                            app.remove_tab(tab_idx);
+                        }
+                    }
+                    app.dialog = Dialog::None;
+                }
+                Dialog::UncommittedChanges { .. } => {
+                    app.dialog = Dialog::None;
+                }
+                Dialog::WorktreeAction { .. } | Dialog::None => {}
+            }
+        }
+        _ => {}
     }
 }
 
@@ -93,18 +112,6 @@ pub fn process_control_panel_key(
         if key.code == KeyCode::Char('l') {
             app.current_tab_mut()
                 .set_control_panel_pane(ControlPanelPane::Claude);
-            return KeyAction::Continue;
-        }
-
-        // Alt+m merges selected worktree (in control panel)
-        if key.code == KeyCode::Char('m') {
-            handle_merge_selected_worktree(app, wt_manager);
-            return KeyAction::Continue;
-        }
-
-        // Alt+r removes selected worktree (in control panel)
-        if key.code == KeyCode::Char('r') {
-            handle_delete_selected_worktree(app, wt_manager);
             return KeyAction::Continue;
         }
 
@@ -141,15 +148,24 @@ pub fn process_control_panel_key(
                 _ => {}
             }
 
-            // Handle text input for worktree creation
+            // Handle text input for worktree creation or worktree action
             match key.code {
                 KeyCode::Enter => {
+                    // Check if there's input text - if so, create new worktree
                     if let Some(prompt) = app.take_control_panel_input()
                         && let Some(manager) = wt_manager
                     {
                         let branch = slugify_prompt(&prompt);
                         if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
                             app.add_worktree_tab(wt.path.clone(), branch, prompt);
+                        }
+                    } else {
+                        // No input text - show action dialog for selected worktree
+                        if let Some(branch) = get_selected_worktree_branch(app, wt_manager) {
+                            // Don't show action dialog for main/master
+                            if branch != "main" && branch != "master" {
+                                app.dialog = Dialog::WorktreeAction { branch };
+                            }
                         }
                     }
                 }
@@ -210,13 +226,10 @@ fn find_tab_for_branch(app: &App, branch: &str) -> Option<usize> {
         .position(|tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == branch))
 }
 
-/// Trigger rebase workflow for selected worktree via Claude Code pane.
+/// Trigger rebase workflow for a specific worktree via Claude Code pane.
 /// Sends a prompt to the Claude Code terminal in the control panel.
-fn handle_merge_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
+fn trigger_merge_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>, branch: &str) {
     let Some(manager) = wt_manager else {
-        return;
-    };
-    let Some(branch) = get_selected_worktree_branch(app, wt_manager) else {
         return;
     };
 
@@ -226,12 +239,12 @@ fn handle_merge_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeMan
     }
 
     // Get the worktree path
-    let Ok(worktree_path) = manager.switch(&branch) else {
+    let Ok(worktree_path) = manager.switch(branch) else {
         return;
     };
 
     // Generate the rebase prompt
-    let prompt = generate_rebase_prompt(&branch, &worktree_path);
+    let prompt = generate_rebase_prompt(branch, &worktree_path);
 
     // Send prompt to Claude Code terminal in control panel
     if let Some(ref mut term) = app.tabs[0].claude_terminal {
@@ -244,12 +257,9 @@ fn handle_merge_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeMan
     app.tabs[0].set_control_panel_pane(ControlPanelPane::Claude);
 }
 
-/// Show delete worktree dialog for selected worktree (from control panel).
-fn handle_delete_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
+/// Show delete worktree dialog for a specific branch.
+fn trigger_delete_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>, branch: &str) {
     let Some(manager) = wt_manager else {
-        return;
-    };
-    let Some(branch) = get_selected_worktree_branch(app, wt_manager) else {
         return;
     };
 
@@ -258,7 +268,7 @@ fn handle_delete_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeMa
         return;
     }
 
-    let warnings = manager.remove(&branch, false).unwrap_or_default();
+    let warnings = manager.remove(branch, false).unwrap_or_default();
     let has_uncommitted = warnings
         .iter()
         .any(|w| matches!(w, RemoveWarning::UncommittedChanges));
@@ -267,10 +277,12 @@ fn handle_delete_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeMa
         .any(|w| matches!(w, RemoveWarning::NotMerged { .. }));
 
     if has_uncommitted {
-        app.dialog = Dialog::UncommittedChanges { branch };
+        app.dialog = Dialog::UncommittedChanges {
+            branch: branch.to_string(),
+        };
     } else {
         app.dialog = Dialog::ConfirmDelete {
-            branch,
+            branch: branch.to_string(),
             unmerged: has_unmerged,
         };
     }
