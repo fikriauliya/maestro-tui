@@ -42,19 +42,27 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     // Render tab bar with quit button on the right
     let mut tab_spans = Vec::new();
     for (i, tab) in app.tabs.iter().enumerate() {
-        let style = if i == app.active_tab {
-            let (fg, bg) = theme.active_tab_colors();
-            Style::default().fg(fg).bg(bg)
-        } else {
-            let (fg, bg) = theme.inactive_tab_colors();
-            Style::default().fg(fg).bg(bg)
-        };
+        let is_active = i == app.active_tab;
 
         match &tab.kind {
             TabKind::ControlPanel { .. } => {
+                // Control tab uses distinct purple color
+                let (fg, bg) = if is_active {
+                    theme.active_control_tab_colors()
+                } else {
+                    theme.inactive_control_tab_colors()
+                };
+                let style = Style::default().fg(fg).bg(bg);
                 tab_spans.push(Span::styled(" 0 Control ", style));
             }
             TabKind::Worktree { path, branch, .. } => {
+                // Worktree tabs use accent color
+                let (fg, bg) = if is_active {
+                    theme.active_tab_colors()
+                } else {
+                    theme.inactive_tab_colors()
+                };
+                let style = Style::default().fg(fg).bg(bg);
                 // Add tab index and branch name (already short from Claude-generated names)
                 tab_spans.push(Span::styled(format!(" {} {} ", i, branch), style));
 

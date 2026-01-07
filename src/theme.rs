@@ -57,6 +57,16 @@ impl Theme {
         (self.tx, self.ui)
     }
 
+    /// Get active control tab colors (fg, bg) - uses purple to distinguish from worktree tabs
+    pub fn active_control_tab_colors(&self) -> (Color, Color) {
+        (self.bg, self.accents.purple)
+    }
+
+    /// Get inactive control tab colors (fg, bg)
+    pub fn inactive_control_tab_colors(&self) -> (Color, Color) {
+        (self.accents.purple, self.ui)
+    }
+
     /// Get status bar key style colors (fg, bg)
     pub fn status_key_colors(&self) -> (Color, Color) {
         (self.bg, self.accents.green)
