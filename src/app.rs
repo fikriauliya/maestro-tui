@@ -7,6 +7,7 @@ use crate::diff_viewer::DiffViewer;
 use crate::input::key_to_bytes;
 use crate::terminal::Terminal;
 use crate::terminal_pair::TerminalPair;
+use crate::theme::{default_theme, Theme, ALL_THEMES};
 
 #[derive(Default, PartialEq, Clone, Copy, Debug)]
 pub enum Pane {
@@ -26,6 +27,8 @@ pub enum Dialog {
     ConfirmDelete { branch: String, unmerged: bool },
     /// Cannot delete: has uncommitted changes
     UncommittedChanges { branch: String },
+    /// Theme picker dialog with selected index
+    ThemePicker { selected: usize },
 }
 
 /// Pane focus for control panel (content vs Claude terminal)
@@ -92,6 +95,14 @@ pub enum Command {
     DialogMerge,
     /// Remove worktree (from WorktreeAction dialog)
     DialogRemove,
+    /// Open theme picker dialog
+    OpenThemePicker,
+    /// Move theme picker selection up
+    ThemePickerUp,
+    /// Move theme picker selection down
+    ThemePickerDown,
+    /// Confirm theme selection
+    ThemePickerConfirm,
 }
 
 pub struct Tab {
@@ -372,6 +383,7 @@ pub struct App {
     pub tabs: Vec<Tab>,
     pub active_tab: usize,
     pub dialog: Dialog,
+    pub theme: Theme,
 }
 
 impl App {
@@ -380,6 +392,19 @@ impl App {
             tabs: vec![Tab::new()],
             active_tab: 0,
             dialog: Dialog::None,
+            theme: default_theme(),
+        }
+    }
+
+    /// Get current theme index in ALL_THEMES
+    pub fn theme_index(&self) -> usize {
+        ALL_THEMES.iter().position(|t| t.name == self.theme.name).unwrap_or(0)
+    }
+
+    /// Set theme by index
+    pub fn set_theme_by_index(&mut self, idx: usize) {
+        if idx < ALL_THEMES.len() {
+            self.theme = ALL_THEMES[idx];
         }
     }
 
@@ -456,6 +481,29 @@ impl App {
             }
             Command::DialogMerge | Command::DialogRemove => {
                 // Handled in event handler's process_dialog_key
+            }
+            Command::OpenThemePicker => {
+                self.dialog = Dialog::ThemePicker { selected: self.theme_index() };
+            }
+            Command::ThemePickerUp => {
+                if let Dialog::ThemePicker { ref mut selected } = self.dialog {
+                    if *selected > 0 {
+                        *selected -= 1;
+                    } else {
+                        *selected = ALL_THEMES.len() - 1; // Wrap to bottom
+                    }
+                }
+            }
+            Command::ThemePickerDown => {
+                if let Dialog::ThemePicker { ref mut selected } = self.dialog {
+                    *selected = (*selected + 1) % ALL_THEMES.len();
+                }
+            }
+            Command::ThemePickerConfirm => {
+                if let Dialog::ThemePicker { selected } = self.dialog {
+                    self.set_theme_by_index(selected);
+                    self.dialog = Dialog::None;
+                }
             }
         }
     }
@@ -555,6 +603,8 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('u') => return Some(Command::ScrollUp),
             // Alt+d scrolls down (vim-style half page down)
             KeyCode::Char('d') => return Some(Command::ScrollDown),
+            // Alt+t opens theme picker
+            KeyCode::Char('t') => return Some(Command::OpenThemePicker),
             // Alt+q quits the application
             KeyCode::Char('q') => return Some(Command::Quit),
             _ => {}
@@ -597,6 +647,19 @@ pub fn handle_dialog_key(key: &KeyEvent, dialog: &Dialog) -> Option<Command> {
                 KeyCode::Char('r') | KeyCode::Char('R') => Some(Command::DialogRemove),
                 // Escape cancels
                 KeyCode::Esc => Some(Command::DialogCancel),
+                _ => None,
+            }
+        }
+        Dialog::ThemePicker { .. } => {
+            match key.code {
+                // j/Down moves selection down
+                KeyCode::Char('j') | KeyCode::Down => Some(Command::ThemePickerDown),
+                // k/Up moves selection up
+                KeyCode::Char('k') | KeyCode::Up => Some(Command::ThemePickerUp),
+                // Enter confirms selection
+                KeyCode::Enter => Some(Command::ThemePickerConfirm),
+                // Escape or q cancels
+                KeyCode::Esc | KeyCode::Char('q') => Some(Command::DialogCancel),
                 _ => None,
             }
         }
@@ -763,6 +826,35 @@ mod tests {
         assert_eq!(
             handle_dialog_key(&make_key(KeyCode::Esc), &dialog),
             Some(Command::DialogCancel)
+        );
+    }
+
+    #[test]
+    fn test_theme_picker_keys() {
+        let dialog = Dialog::ThemePicker { selected: 0 };
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('j')), &dialog),
+            Some(Command::ThemePickerDown)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Char('k')), &dialog),
+            Some(Command::ThemePickerUp)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Enter), &dialog),
+            Some(Command::ThemePickerConfirm)
+        );
+        assert_eq!(
+            handle_dialog_key(&make_key(KeyCode::Esc), &dialog),
+            Some(Command::DialogCancel)
+        );
+    }
+
+    #[test]
+    fn test_alt_open_theme_picker() {
+        assert_eq!(
+            handle_key(&make_alt_key(KeyCode::Char('t'))),
+            Some(Command::OpenThemePicker)
         );
     }
 

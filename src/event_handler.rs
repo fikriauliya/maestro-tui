@@ -82,7 +82,7 @@ pub fn process_dialog_key(app: &mut App, key: &KeyEvent, wt_manager: &Option<Wor
                 Dialog::UncommittedChanges { .. } => {
                     app.dialog = Dialog::None;
                 }
-                Dialog::WorktreeAction { .. } | Dialog::None => {}
+                Dialog::ThemePicker { .. } | Dialog::WorktreeAction { .. } | Dialog::None => {}
             }
         }
         _ => {}

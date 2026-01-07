@@ -6,21 +6,25 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
 
+use ratatui::style::Color;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::app::{App, ControlPanelPane, Dialog, Pane, TabKind, inner_area};
-use crate::theme::{self, active_tab_style, border_style, inactive_tab_style};
+use crate::theme::{self, Theme, ALL_THEMES};
 use crate::worktree::{WorktreeManager, WorktreeStatus};
 
 /// Render the entire application UI.
 /// Returns (tab_area, quit_button_x, main_area) for click detection.
 pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
+    // Copy theme to avoid borrow issues
+    let theme = app.theme;
+
     // Split into tab bar, main area, and status bar
     let [tab_area, main_area, status_area] = Layout::vertical([
         Constraint::Length(1),
@@ -30,7 +34,7 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     .areas(frame.area());
 
     // Render status bar with keyboard shortcuts
-    render_status_bar(frame, status_area);
+    render_status_bar(frame, status_area, &theme);
 
     // Fetch worktree statuses for tab display
     let worktree_statuses = get_worktree_status_map();
@@ -39,9 +43,11 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     let mut tab_spans = Vec::new();
     for (i, tab) in app.tabs.iter().enumerate() {
         let style = if i == app.active_tab {
-            active_tab_style()
+            let (fg, bg) = theme.active_tab_colors();
+            Style::default().fg(fg).bg(bg)
         } else {
-            inactive_tab_style()
+            let (fg, bg) = theme.inactive_tab_colors();
+            Style::default().fg(fg).bg(bg)
         };
 
         match &tab.kind {
@@ -70,7 +76,7 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     let quit_text = "[X]";
     let quit_x = tab_area.width.saturating_sub(quit_text.len() as u16);
     let quit_area = Rect::new(tab_area.x + quit_x, tab_area.y, quit_text.len() as u16, 1);
-    let quit_style = Style::default().fg(theme::RED);
+    let quit_style = Style::default().fg(theme.accents.red);
     frame.render_widget(Paragraph::new(quit_text).style(quit_style), quit_area);
 
     // Check if current tab is control panel
@@ -82,7 +88,7 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
 
     // Render dialog on top if shown
     if !matches!(app.dialog, Dialog::None) {
-        render_dialog(&app.dialog, frame, frame.area());
+        render_dialog(&app.dialog, &theme, frame, frame.area());
     }
 
     (tab_area, quit_x, main_area)
@@ -90,6 +96,8 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
 
 /// Render the control panel tab with worktree management interface.
 fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
+    let theme = app.theme;
+
     // Split into left (content) and right (Claude terminal) panes
     let [left_area, right_area] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(area);
@@ -103,6 +111,7 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
         frame,
         left_area,
         focused_pane == ControlPanelPane::Content,
+        &theme,
     );
 
     // Ensure Claude terminal exists and render right pane
@@ -112,7 +121,7 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
     let tab = app.current_tab();
     let right_block = Block::bordered()
         .title("Claude")
-        .border_style(border_style(focused_pane == ControlPanelPane::Claude));
+        .border_style(Style::default().fg(theme.border_color(focused_pane == ControlPanelPane::Claude)));
 
     frame.render_widget(right_block.clone(), right_area);
     if let Some(ref term) = tab.claude_terminal {
@@ -121,7 +130,7 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
 }
 
 /// Render the content portion of the control panel (left side).
-fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_focused: bool) {
+fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
     // Split into content area and input area
     let [content_area, input_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).areas(area);
@@ -129,13 +138,13 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     // Render control panel content
     let block = Block::bordered()
         .title("Control Panel")
-        .border_style(border_style(is_focused));
+        .border_style(Style::default().fg(theme.border_color(is_focused)));
 
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
             "  Enter a prompt to create a new worktree tab:",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(theme.accents.yellow),
         )),
         Line::from(""),
     ];
@@ -151,7 +160,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     // List worktrees with status
     lines.push(Line::from(Span::styled(
         "  Worktrees: (j/k to navigate, Enter for actions)",
-        Style::default().fg(Color::Cyan),
+        Style::default().fg(theme.accents.cyan),
     )));
 
     for (idx, status) in worktree_statuses.iter().enumerate() {
@@ -163,20 +172,20 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
 
         // Dirty indicator
         if status.is_dirty {
-            indicators.push(Span::styled(" ●", Style::default().fg(theme::RED)));
+            indicators.push(Span::styled(" ●", Style::default().fg(theme.accents.red)));
         }
 
         // Ahead/behind indicators
         if status.ahead > 0 {
             indicators.push(Span::styled(
                 format!(" ↑{}", status.ahead),
-                Style::default().fg(theme::GREEN),
+                Style::default().fg(theme.accents.green),
             ));
         }
         if status.behind > 0 {
             indicators.push(Span::styled(
                 format!(" ↓{}", status.behind),
-                Style::default().fg(theme::ORANGE),
+                Style::default().fg(theme.accents.orange),
             ));
         }
 
@@ -198,26 +207,26 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::raw("  "),
-        Span::styled("●", Style::default().fg(theme::RED)),
+        Span::styled("●", Style::default().fg(theme.accents.red)),
         Span::raw(" dirty  "),
-        Span::styled("↑", Style::default().fg(theme::GREEN)),
+        Span::styled("↑", Style::default().fg(theme.accents.green)),
         Span::raw(" ahead  "),
-        Span::styled("↓", Style::default().fg(theme::ORANGE)),
+        Span::styled("↓", Style::default().fg(theme.accents.orange)),
         Span::raw(" behind"),
     ]));
 
     // Add bd ready section
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
-        Span::styled("  Ready Issues ", Style::default().fg(Color::Cyan)),
-        Span::styled("[Alt+b to reload]", Style::default().fg(Color::DarkGray)),
+        Span::styled("  Ready Issues ", Style::default().fg(theme.accents.cyan)),
+        Span::styled("[Alt+b to reload]", Style::default().fg(theme.tx_muted)),
     ]));
 
     let bd_ready_output = app.get_bd_ready_output();
     if bd_ready_output.is_empty() {
         lines.push(Line::from(Span::styled(
             "    (no bd ready output)",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.tx_muted),
         )));
     } else {
         // Skip the header line if present (starts with emoji or "Ready work")
@@ -230,13 +239,10 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
             // Display issue lines with some styling
             let styled_line = if trimmed.starts_with("[P0]") || trimmed.contains("[P0]") {
                 // Critical priority - red
-                Span::styled(format!("    {}", trimmed), Style::default().fg(theme::RED))
+                Span::styled(format!("    {}", trimmed), Style::default().fg(theme.accents.red))
             } else if trimmed.starts_with("[P1]") || trimmed.contains("[P1]") {
                 // High priority - orange
-                Span::styled(
-                    format!("    {}", trimmed),
-                    Style::default().fg(theme::ORANGE),
-                )
+                Span::styled(format!("    {}", trimmed), Style::default().fg(theme.accents.orange))
             } else {
                 // Normal priority
                 Span::raw(format!("    {}", trimmed))
@@ -256,7 +262,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
 
     let input_block = Block::bordered()
         .title("Prompt")
-        .border_style(border_style(is_focused));
+        .border_style(Style::default().fg(theme.border_color(is_focused)));
 
     // Show cursor indicator only when content pane is focused
     let input_display = if is_focused {
@@ -279,13 +285,14 @@ fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: Rect) {
     let tab = app.current_tab_mut();
     tab.ensure_right_terminal(right);
 
+    let theme = &app.theme;
     let tab = app.current_tab();
     let left_block = Block::bordered()
         .title("Diff")
-        .border_style(border_style(tab.focused == Pane::Left));
+        .border_style(Style::default().fg(theme.border_color(tab.focused == Pane::Left)));
     let right_block = Block::bordered()
         .title("Claude")
-        .border_style(border_style(tab.focused == Pane::Right));
+        .border_style(Style::default().fg(theme.border_color(tab.focused == Pane::Right)));
 
     // Render left pane with diff viewer
     frame.render_widget(left_block.clone(), left);
@@ -302,15 +309,17 @@ fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: Rect) {
 }
 
 /// Render the status bar with keyboard shortcuts.
-fn render_status_bar(frame: &mut Frame, area: Rect) {
+fn render_status_bar(frame: &mut Frame, area: Rect, theme: &Theme) {
     // Zellij-style: <key> action  <key> action ...
-    let key_style = Style::default().fg(theme::BG).bg(theme::GREEN);
-    let action_style = Style::default().fg(theme::PAPER);
+    let (key_fg, key_bg) = theme.status_key_colors();
+    let key_style = Style::default().fg(key_fg).bg(key_bg);
+    let action_style = Style::default().fg(theme.status_action_color());
 
     let shortcuts = vec![
         ("Alt+0-9", "Tabs"),
         ("Alt+h/l", "Focus"),
         ("Alt+u/d", "Scroll"),
+        ("Alt+t", "Theme"),
         ("Alt+q", "Quit"),
     ];
 
@@ -325,10 +334,13 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
 }
 
 /// Render a modal dialog.
-fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
+fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) {
     // Calculate dialog size and position (centered)
+    let dialog_height = match dialog {
+        Dialog::ThemePicker { .. } => (ALL_THEMES.len() + 6) as u16,
+        _ => 9u16,
+    };
     let dialog_width = 60u16.min(area.width.saturating_sub(4));
-    let dialog_height = 9u16;
     let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
     let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
     let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
@@ -336,7 +348,7 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
     // Clear the area behind the dialog
     frame.render_widget(Clear, dialog_area);
 
-    let (title, lines) = match dialog {
+    let (title, lines, border_color) = match dialog {
         Dialog::WorktreeAction { branch } => {
             let content = vec![
                 Line::from(""),
@@ -345,7 +357,7 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                     Span::styled(
                         branch,
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(theme.accents.cyan)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]),
@@ -357,13 +369,13 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                     Span::styled(
                         "M",
                         Style::default()
-                            .fg(Color::Green)
+                            .fg(theme.accents.green)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" to merge, "),
                     Span::styled(
                         "R",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.accents.red).add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" to remove, "),
                     Span::styled(
@@ -375,19 +387,50 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                     Span::raw(" to cancel"),
                 ]),
             ];
-            ("Worktree Action", content)
+            ("Worktree Action", content, theme.accent)
+        }
+        Dialog::ThemePicker { selected } => {
+            let mut content = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Select a theme:",
+                    Style::default().fg(theme.highlight),
+                )),
+                Line::from(""),
+            ];
+
+            for (i, t) in ALL_THEMES.iter().enumerate() {
+                let indicator = if i == *selected { "▸ " } else { "  " };
+                let style = if i == *selected {
+                    Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.tx)
+                };
+                content.push(Line::from(Span::styled(
+                    format!("  {}  {}", indicator, t.name),
+                    style,
+                )));
+            }
+
+            content.push(Line::from(""));
+            content.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("j/k", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" navigate  "),
+                Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" select  "),
+                Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" cancel"),
+            ]));
+
+            ("Theme", content, theme.accent)
         }
         Dialog::ConfirmDelete { branch, unmerged } => {
             let mut content = vec![
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  Delete worktree "),
-                    Span::styled(
-                        branch,
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(branch, Style::default().fg(theme.accents.cyan).add_modifier(Modifier::BOLD)),
                     Span::raw("?"),
                 ]),
             ];
@@ -395,43 +438,30 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                 content.push(Line::from(""));
                 content.push(Line::from(Span::styled(
                     "  ⚠ WARNING: Branch has unmerged commits!",
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme.accents.yellow),
                 )));
             }
             content.push(Line::from(""));
             content.push(Line::from(vec![
                 Span::raw("  Press "),
-                Span::styled(
-                    "Y",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("Y", Style::default().fg(theme.accents.green).add_modifier(Modifier::BOLD)),
                 Span::raw(" to confirm, "),
-                Span::styled(
-                    "N",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("N", Style::default().fg(theme.accents.red).add_modifier(Modifier::BOLD)),
                 Span::raw(" to cancel"),
             ]));
-            ("Delete Worktree", content)
+            ("Delete Worktree", content, theme.accents.red)
         }
         Dialog::UncommittedChanges { branch } => {
             let content = vec![
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  Cannot delete "),
-                    Span::styled(
-                        branch,
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(branch, Style::default().fg(theme.accents.cyan).add_modifier(Modifier::BOLD)),
                 ]),
                 Line::from(""),
                 Line::from(Span::styled(
                     "  ✗ Worktree has uncommitted changes!",
-                    Style::default().fg(Color::Red),
+                    Style::default().fg(theme.accents.red),
                 )),
                 Line::from(""),
                 Line::from("  Please commit or stash your changes first."),
@@ -442,14 +472,14 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                     Span::raw(" to close"),
                 ]),
             ];
-            ("Cannot Delete", content)
+            ("Cannot Delete", content, theme.accents.red)
         }
         Dialog::None => return,
     };
 
     let block = Block::bordered()
         .title(title)
-        .border_style(Style::default().fg(theme::RED));
+        .border_style(Style::default().fg(border_color));
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, dialog_area);
