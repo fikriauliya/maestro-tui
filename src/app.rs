@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -8,6 +9,7 @@ use crate::input::key_to_bytes;
 use crate::terminal::Terminal;
 use crate::terminal_pair::TerminalPair;
 use crate::theme::{default_theme, Theme, ALL_THEMES};
+use crate::worktree::{WorktreeManager, WorktreeStatus};
 
 #[derive(Default, PartialEq, Clone, Copy, Debug)]
 pub enum Pane {
@@ -385,16 +387,44 @@ pub struct App {
     pub active_tab: usize,
     pub dialog: Dialog,
     pub theme: Theme,
+    /// Cached worktree statuses (refreshed periodically, not every frame)
+    cached_worktree_statuses: Vec<WorktreeStatus>,
 }
 
 impl App {
     pub fn new() -> Self {
+        // Load initial worktree statuses
+        let cached_worktree_statuses = WorktreeManager::new()
+            .and_then(|m| m.list_with_status())
+            .unwrap_or_default();
+
         Self {
             tabs: vec![Tab::new()],
             active_tab: 0,
             dialog: Dialog::None,
             theme: default_theme(),
+            cached_worktree_statuses,
         }
+    }
+
+    /// Refresh the cached worktree statuses. Call this periodically, not every frame.
+    pub fn refresh_worktree_statuses(&mut self) {
+        self.cached_worktree_statuses = WorktreeManager::new()
+            .and_then(|m| m.list_with_status())
+            .unwrap_or_default();
+    }
+
+    /// Get cached worktree statuses (doesn't hit git)
+    pub fn worktree_statuses(&self) -> &[WorktreeStatus] {
+        &self.cached_worktree_statuses
+    }
+
+    /// Get cached worktree statuses as a map by path (doesn't hit git)
+    pub fn worktree_status_map(&self) -> HashMap<PathBuf, &WorktreeStatus> {
+        self.cached_worktree_statuses
+            .iter()
+            .map(|s| (s.worktree.path.clone(), s))
+            .collect()
     }
 
     /// Get current theme index in ALL_THEMES

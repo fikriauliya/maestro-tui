@@ -124,8 +124,9 @@ impl Terminal {
     }
 
     pub fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
-        self.pty_writer.write_all(data)?;
-        self.pty_writer.flush()
+        self.pty_writer.write_all(data)
+        // Note: Don't flush on every keystroke - PTY handles buffering efficiently
+        // and flushing synchronously causes noticeable typing lag
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) {

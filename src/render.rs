@@ -12,12 +12,9 @@ use ratatui::{
 };
 
 use ratatui::style::Color;
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 use crate::app::{App, ControlPanelPane, Dialog, Pane, TabKind, inner_area};
 use crate::theme::{self, Theme, ALL_THEMES};
-use crate::worktree::{WorktreeManager, WorktreeStatus};
 
 /// Render the entire application UI.
 /// Returns (tab_area, quit_button_x, main_area) for click detection.
@@ -36,8 +33,8 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     // Render status bar with keyboard shortcuts
     render_status_bar(frame, status_area, &theme);
 
-    // Fetch worktree statuses for tab display
-    let worktree_statuses = get_worktree_status_map();
+    // Use cached worktree statuses for tab display (refreshed periodically, not every frame)
+    let worktree_statuses = app.worktree_status_map();
 
     // Render tab bar with quit button on the right
     let mut tab_spans = Vec::new();
@@ -156,10 +153,8 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
         Line::from(""),
     ];
 
-    // Get worktree status information
-    let worktree_statuses: Vec<WorktreeStatus> = WorktreeManager::new()
-        .and_then(|m| m.list_with_status())
-        .unwrap_or_default();
+    // Use cached worktree status information (refreshed periodically, not every frame)
+    let worktree_statuses = app.worktree_statuses();
 
     // Get selected worktree index
     let selected_idx = app.current_tab().selected_worktree();
@@ -490,14 +485,4 @@ fn render_dialog(dialog: &Dialog, theme: &Theme, frame: &mut Frame, area: Rect) 
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, dialog_area);
-}
-
-/// Get worktree statuses as a map keyed by path for efficient lookup
-fn get_worktree_status_map() -> HashMap<PathBuf, WorktreeStatus> {
-    WorktreeManager::new()
-        .and_then(|m| m.list_with_status())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| (s.worktree.path.clone(), s))
-        .collect()
 }

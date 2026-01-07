@@ -89,11 +89,12 @@ fn run(
     const WORKTREE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
     loop {
-        // Refresh diff viewers periodically
+        // Refresh diff viewers and worktree statuses periodically
         if last_diff_refresh.elapsed() >= DIFF_REFRESH_INTERVAL {
             for tab in &mut app.tabs {
                 tab.refresh_diff_viewer();
             }
+            app.refresh_worktree_statuses();
             last_diff_refresh = Instant::now();
         }
 
