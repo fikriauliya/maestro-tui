@@ -252,9 +252,9 @@ fn trigger_merge_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>, b
 
     // Send prompt to Claude Code terminal in control panel
     if let Some(ref mut term) = app.tabs[0].claude_terminal {
-        // Send the prompt followed by Enter
+        // Send the prompt followed by Enter, with explicit flush to ensure it's processed
         let _ = term.write(prompt.as_bytes());
-        let _ = term.write(b"\r");
+        let _ = term.write_and_flush(b"\r");
     }
 
     // Focus the Claude pane so user can see the progress

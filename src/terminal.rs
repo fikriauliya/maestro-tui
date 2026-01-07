@@ -129,6 +129,13 @@ impl Terminal {
         // and flushing synchronously causes noticeable typing lag
     }
 
+    /// Write data and flush immediately. Use this for programmatic input
+    /// that needs to be processed immediately (like auto-submitting prompts).
+    pub fn write_and_flush(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.pty_writer.write_all(data)?;
+        self.pty_writer.flush()
+    }
+
     pub fn resize(&mut self, cols: u16, rows: u16) {
         // Resize the PTY (notifies child process via SIGWINCH)
         let _ = self.pty_master.resize(PtySize {
