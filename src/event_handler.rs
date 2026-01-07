@@ -73,10 +73,10 @@ pub fn process_control_panel_key(
     key: &KeyEvent,
     wt_manager: &Option<WorktreeManager>,
 ) -> KeyAction {
-    // Check for Ctrl/Alt shortcuts first
-    if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
-        // Special: Ctrl+b reloads bd ready
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
+    // Check for Alt shortcuts first
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        // Special: Alt+b reloads bd ready
+        if key.code == KeyCode::Char('b') {
             app.execute(Command::ReloadBdReady(load_bd_ready()));
             return KeyAction::Continue;
         }

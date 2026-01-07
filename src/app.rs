@@ -350,9 +350,9 @@ pub fn inner_area(area: Rect) -> Rect {
     }
 }
 
-/// Handle a key event for terminal tabs (passthrough model with Ctrl/Alt shortcuts)
+/// Handle a key event for terminal tabs (passthrough model with Alt shortcuts)
 pub fn handle_key(key: &KeyEvent) -> Option<Command> {
-    // Check for Alt+number shortcuts (tab switching)
+    // Check for Alt+key shortcuts (all app shortcuts use Alt)
     if key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
             // Alt+0 switches to tab 0 (control panel)
@@ -362,28 +362,28 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
                 let tab_idx = (c as usize) - ('0' as usize);
                 return Some(Command::SwitchTab(tab_idx));
             }
+            // Alt+h focuses left pane
+            KeyCode::Char('h') => return Some(Command::FocusPane(Pane::Left)),
+            // Alt+l focuses right pane
+            KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
+            // Alt+u scrolls up (vim-style half page up)
+            KeyCode::Char('u') => return Some(Command::ScrollUp),
+            // Alt+d scrolls down (vim-style half page down)
+            KeyCode::Char('d') => return Some(Command::ScrollDown),
+            // Alt+m merges current worktree branch into main
+            KeyCode::Char('m') => return Some(Command::MergeBranch),
+            // Alt+r removes/deletes current worktree (with confirmation)
+            KeyCode::Char('r') => return Some(Command::DeleteWorktree),
+            // Alt+q quits the application
+            KeyCode::Char('q') => return Some(Command::Quit),
             _ => {}
         }
+        return None;
     }
 
-    // Check for Ctrl+key shortcuts
+    // Ctrl keys pass through to terminal (Ctrl+C, Ctrl+Z, etc.)
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
-            // Ctrl+h focuses left pane
-            KeyCode::Char('h') => return Some(Command::FocusPane(Pane::Left)),
-            // Ctrl+l focuses right pane
-            KeyCode::Char('l') => return Some(Command::FocusPane(Pane::Right)),
-            // Ctrl+u scrolls up (vim-style half page up)
-            KeyCode::Char('u') => return Some(Command::ScrollUp),
-            // Ctrl+d scrolls down (vim-style half page down)
-            KeyCode::Char('d') => return Some(Command::ScrollDown),
-            // Ctrl+m merges current worktree branch into main
-            KeyCode::Char('m') => return Some(Command::MergeBranch),
-            // Ctrl+r removes/deletes current worktree (with confirmation)
-            KeyCode::Char('r') => return Some(Command::DeleteWorktree),
-            // Ctrl+x quits the application
-            KeyCode::Char('x') => return Some(Command::Quit),
-            // Pass through recognized Ctrl sequences (Ctrl+C, Ctrl+Z, etc.)
             KeyCode::Char(c) if c.is_ascii_alphabetic() => {
                 let bytes = key_to_bytes(key);
                 if !bytes.is_empty() {
@@ -392,7 +392,6 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             }
             _ => {}
         }
-        // Unrecognized Ctrl combos (like Ctrl+@, Ctrl+[) - do nothing
         return None;
     }
 
@@ -423,10 +422,6 @@ mod tests {
 
     fn make_key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::empty())
-    }
-
-    fn make_ctrl_key(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::CONTROL)
     }
 
     fn make_alt_key(code: KeyCode) -> KeyEvent {
@@ -470,7 +465,7 @@ mod tests {
         assert_eq!(inner.height, 0);
     }
 
-    // handle_key tests (Alt+number for tabs, Ctrl for other shortcuts)
+    // handle_key tests (all shortcuts use Alt)
     #[test]
     fn test_alt_switch_tab() {
         assert_eq!(
@@ -492,30 +487,38 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_focus_pane() {
+    fn test_alt_focus_pane() {
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('h'))),
+            handle_key(&make_alt_key(KeyCode::Char('h'))),
             Some(Command::FocusPane(Pane::Left))
         );
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('l'))),
+            handle_key(&make_alt_key(KeyCode::Char('l'))),
             Some(Command::FocusPane(Pane::Right))
         );
     }
 
     #[test]
-    fn test_ctrl_merge_branch() {
+    fn test_alt_merge_branch() {
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('m'))),
+            handle_key(&make_alt_key(KeyCode::Char('m'))),
             Some(Command::MergeBranch)
         );
     }
 
     #[test]
-    fn test_ctrl_r_delete_worktree() {
+    fn test_alt_delete_worktree() {
         assert_eq!(
-            handle_key(&make_ctrl_key(KeyCode::Char('r'))),
+            handle_key(&make_alt_key(KeyCode::Char('r'))),
             Some(Command::DeleteWorktree)
+        );
+    }
+
+    #[test]
+    fn test_alt_quit() {
+        assert_eq!(
+            handle_key(&make_alt_key(KeyCode::Char('q'))),
+            Some(Command::Quit)
         );
     }
 

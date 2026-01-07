@@ -145,7 +145,7 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  Ready Issues ", Style::default().fg(Color::Cyan)),
-        Span::styled("[Ctrl+b to reload]", Style::default().fg(Color::DarkGray)),
+        Span::styled("[Alt+b to reload]", Style::default().fg(Color::DarkGray)),
     ]));
 
     let bd_ready_output = app.get_bd_ready_output();
@@ -237,11 +237,11 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
 
     let shortcuts = vec![
         ("Alt+0-9", "Tabs"),
-        ("Ctrl+h", "Left"),
-        ("Ctrl+l", "Right"),
-        ("Ctrl+m", "Merge"),
-        ("Ctrl+r", "Remove"),
-        ("Ctrl+x", "Quit"),
+        ("Alt+h", "Left"),
+        ("Alt+l", "Right"),
+        ("Alt+m", "Merge"),
+        ("Alt+r", "Remove"),
+        ("Alt+q", "Quit"),
     ];
 
     let mut spans = Vec::new();
