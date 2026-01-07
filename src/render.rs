@@ -145,14 +145,18 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
         .and_then(|m| m.list_with_status())
         .unwrap_or_default();
 
+    // Get selected worktree index
+    let selected_idx = app.current_tab().selected_worktree();
+
     // List worktrees with status
     lines.push(Line::from(Span::styled(
-        "  Worktrees:",
+        "  Worktrees: (j/k to navigate, Alt+m merge, Alt+r remove)",
         Style::default().fg(Color::Cyan),
     )));
 
-    for status in &worktree_statuses {
+    for (idx, status) in worktree_statuses.iter().enumerate() {
         let branch = status.worktree.branch.as_deref().unwrap_or("detached");
+        let is_selected = idx == selected_idx && is_focused;
 
         // Build status indicators
         let mut indicators = Vec::new();
@@ -176,8 +180,16 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
             ));
         }
 
-        // Build the line
-        let mut spans = vec![Span::raw(format!("    {}", branch))];
+        // Build the line with selection indicator
+        let prefix = if is_selected { "  > " } else { "    " };
+        let branch_style = if is_selected {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        let mut spans = vec![Span::raw(prefix), Span::styled(branch, branch_style)];
         spans.extend(indicators);
         lines.push(Line::from(spans));
     }
@@ -430,7 +442,7 @@ fn truncate_middle(s: &str, max_len: usize) -> String {
     // Split: beginning gets slightly more than end
     let ellipsis = "…";
     let available = max_len - 1; // 1 char for ellipsis
-    let start_len = (available + 1) / 2; // Ceiling division
+    let start_len = available.div_ceil(2);
     let end_len = available / 2;
 
     let start: String = s.chars().take(start_len).collect();

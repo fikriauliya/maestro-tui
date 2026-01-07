@@ -46,6 +46,8 @@ pub enum TabKind {
         bd_ready_output: Vec<String>,
         /// Which pane is focused in the control panel
         focused_pane: ControlPanelPane,
+        /// Currently selected worktree index (for merge/remove operations)
+        selected_worktree: usize,
     },
     /// Worktree tab with dual terminal panes
     Worktree {
@@ -82,6 +84,12 @@ pub enum Command {
     DialogCancel,
     /// Reload bd ready output for control panel
     ReloadBdReady(Vec<String>),
+    /// Select previous worktree in control panel list
+    #[allow(dead_code)]
+    SelectPrevWorktree,
+    /// Select next worktree in control panel list
+    #[allow(dead_code)]
+    SelectNextWorktree,
 }
 
 pub struct Tab {
@@ -103,6 +111,7 @@ impl Tab {
                 input: String::new(),
                 bd_ready_output: Vec::new(),
                 focused_pane: ControlPanelPane::Content,
+                selected_worktree: 0,
             },
             focused: Pane::Left,
             pair: TerminalPair::new(),
@@ -119,6 +128,7 @@ impl Tab {
                 input: String::new(),
                 bd_ready_output: Vec::new(),
                 focused_pane: ControlPanelPane::Content,
+                selected_worktree: 0,
             },
             focused: Pane::Left,
             pair: TerminalPair::new(),
@@ -313,6 +323,40 @@ impl Tab {
             };
         }
     }
+
+    /// Get the selected worktree index (for control panel)
+    pub fn selected_worktree(&self) -> usize {
+        match &self.kind {
+            TabKind::ControlPanel {
+                selected_worktree, ..
+            } => *selected_worktree,
+            _ => 0,
+        }
+    }
+
+    /// Select previous worktree in the list
+    pub fn select_prev_worktree(&mut self) {
+        if let TabKind::ControlPanel {
+            ref mut selected_worktree,
+            ..
+        } = self.kind
+        {
+            *selected_worktree = selected_worktree.saturating_sub(1);
+        }
+    }
+
+    /// Select next worktree in the list (needs max count)
+    pub fn select_next_worktree(&mut self, max_count: usize) {
+        if let TabKind::ControlPanel {
+            ref mut selected_worktree,
+            ..
+        } = self.kind
+            && max_count > 0
+            && *selected_worktree < max_count - 1
+        {
+            *selected_worktree += 1;
+        }
+    }
 }
 
 impl Default for Tab {
@@ -409,6 +453,9 @@ impl App {
             }
             Command::DialogCancel => {
                 self.dialog = Dialog::None;
+            }
+            Command::SelectPrevWorktree | Command::SelectNextWorktree => {
+                // Handled directly in event handler (needs worktree count)
             }
         }
     }

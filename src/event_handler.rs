@@ -52,10 +52,14 @@ pub fn process_dialog_key(app: &mut App, key: &KeyEvent, wt_manager: &Option<Wor
     match &app.dialog {
         Dialog::ConfirmDelete { branch, .. } => {
             let branch = branch.clone();
-            let tab_idx = app.active_tab;
             if let Some(manager) = wt_manager {
                 let _ = manager.remove(&branch, true);
-                app.remove_tab(tab_idx);
+                // Find and remove the tab for this branch (if any)
+                if let Some(tab_idx) = app.tabs.iter().position(
+                    |tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == &branch),
+                ) {
+                    app.remove_tab(tab_idx);
+                }
             }
             app.dialog = Dialog::None;
         }
@@ -92,6 +96,18 @@ pub fn process_control_panel_key(
             return KeyAction::Continue;
         }
 
+        // Alt+m merges selected worktree (in control panel)
+        if key.code == KeyCode::Char('m') {
+            handle_merge_selected_worktree(app, wt_manager);
+            return KeyAction::Continue;
+        }
+
+        // Alt+r removes selected worktree (in control panel)
+        if key.code == KeyCode::Char('r') {
+            handle_delete_selected_worktree(app, wt_manager);
+            return KeyAction::Continue;
+        }
+
         if let Some(cmd) = handle_key(key) {
             if matches!(cmd, Command::Quit) {
                 return KeyAction::Quit;
@@ -107,6 +123,24 @@ pub fn process_control_panel_key(
     // Route input based on focused pane
     match focused_pane {
         ControlPanelPane::Content => {
+            // Handle worktree navigation with up/down and j/k
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    app.current_tab_mut().select_prev_worktree();
+                    return KeyAction::Continue;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let worktree_count = wt_manager
+                        .as_ref()
+                        .and_then(|m| m.list_with_status().ok())
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    app.current_tab_mut().select_next_worktree(worktree_count);
+                    return KeyAction::Continue;
+                }
+                _ => {}
+            }
+
             // Handle text input for worktree creation
             match key.code {
                 KeyCode::Enter => {
@@ -127,10 +161,10 @@ pub fn process_control_panel_key(
         ControlPanelPane::Claude => {
             // Pass input to Claude terminal
             let bytes = key_to_bytes(key);
-            if !bytes.is_empty() {
-                if let Some(ref mut term) = app.current_tab_mut().claude_terminal {
-                    let _ = term.write(&bytes);
-                }
+            if !bytes.is_empty()
+                && let Some(ref mut term) = app.current_tab_mut().claude_terminal
+            {
+                let _ = term.write(&bytes);
             }
         }
     }
@@ -139,10 +173,11 @@ pub fn process_control_panel_key(
 }
 
 /// Handle terminal tab key events.
+/// Note: Merge/remove operations are now handled in the control panel only.
 pub fn process_terminal_key(
     app: &mut App,
     key: &KeyEvent,
-    wt_manager: &Option<WorktreeManager>,
+    _wt_manager: &Option<WorktreeManager>,
 ) -> KeyAction {
     let Some(cmd) = handle_key(key) else {
         return KeyAction::Continue;
@@ -150,14 +185,8 @@ pub fn process_terminal_key(
 
     match cmd {
         Command::Quit => KeyAction::Quit,
-        Command::MergeBranch => {
-            handle_merge_branch(app, wt_manager);
-            KeyAction::Continue
-        }
-        Command::DeleteWorktree => {
-            handle_delete_worktree(app, wt_manager);
-            KeyAction::Continue
-        }
+        // Merge and delete operations are only available from control panel
+        Command::MergeBranch | Command::DeleteWorktree => KeyAction::Continue,
         cmd => {
             app.execute(cmd);
             KeyAction::Continue
@@ -166,6 +195,8 @@ pub fn process_terminal_key(
 }
 
 /// Merge current worktree branch into main.
+/// Note: This is now only used indirectly via the control panel handlers.
+#[allow(dead_code)]
 fn handle_merge_branch(app: &mut App, wt_manager: &Option<WorktreeManager>) {
     let Some(manager) = wt_manager else {
         return;
@@ -188,6 +219,8 @@ fn handle_merge_branch(app: &mut App, wt_manager: &Option<WorktreeManager>) {
 }
 
 /// Show delete worktree dialog.
+/// Note: This is now only used indirectly via the control panel handlers.
+#[allow(dead_code)]
 fn handle_delete_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
     let Some(manager) = wt_manager else {
         return;
@@ -195,6 +228,84 @@ fn handle_delete_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
     let Some(branch) = app.current_tab().branch().map(String::from) else {
         return;
     };
+
+    let warnings = manager.remove(&branch, false).unwrap_or_default();
+    let has_uncommitted = warnings
+        .iter()
+        .any(|w| matches!(w, RemoveWarning::UncommittedChanges));
+    let has_unmerged = warnings
+        .iter()
+        .any(|w| matches!(w, RemoveWarning::NotMerged { .. }));
+
+    if has_uncommitted {
+        app.dialog = Dialog::UncommittedChanges { branch };
+    } else {
+        app.dialog = Dialog::ConfirmDelete {
+            branch,
+            unmerged: has_unmerged,
+        };
+    }
+}
+
+/// Get the branch name of the selected worktree in control panel.
+fn get_selected_worktree_branch(app: &App, wt_manager: &Option<WorktreeManager>) -> Option<String> {
+    let manager = wt_manager.as_ref()?;
+    let worktrees = manager.list_with_status().ok()?;
+    let selected_idx = app.current_tab().selected_worktree();
+    worktrees
+        .get(selected_idx)
+        .and_then(|s| s.worktree.branch.clone())
+}
+
+/// Find the tab index for a given branch name.
+fn find_tab_for_branch(app: &App, branch: &str) -> Option<usize> {
+    app.tabs
+        .iter()
+        .position(|tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == branch))
+}
+
+/// Merge selected worktree branch into main (from control panel).
+fn handle_merge_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
+    let Some(manager) = wt_manager else {
+        return;
+    };
+    let Some(branch) = get_selected_worktree_branch(app, wt_manager) else {
+        return;
+    };
+
+    // Don't merge main branch
+    if branch == "main" || branch == "master" {
+        return;
+    }
+
+    // Generate commit message using Claude
+    let commit_msg = manager
+        .get_branch_diff(&branch)
+        .ok()
+        .and_then(|diff| generate_merge_message(&branch, "main", &diff).ok());
+
+    if manager.merge(&branch, commit_msg.as_deref()).is_ok() {
+        let _ = manager.remove(&branch, true);
+        // Remove the corresponding tab if it exists
+        if let Some(tab_idx) = find_tab_for_branch(app, &branch) {
+            app.remove_tab(tab_idx);
+        }
+    }
+}
+
+/// Show delete worktree dialog for selected worktree (from control panel).
+fn handle_delete_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
+    let Some(manager) = wt_manager else {
+        return;
+    };
+    let Some(branch) = get_selected_worktree_branch(app, wt_manager) else {
+        return;
+    };
+
+    // Don't delete main branch
+    if branch == "main" || branch == "master" {
+        return;
+    }
 
     let warnings = manager.remove(&branch, false).unwrap_or_default();
     let has_uncommitted = warnings
