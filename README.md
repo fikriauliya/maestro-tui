@@ -158,6 +158,46 @@ The app runs a 60fps render loop. Each terminal pane has a background reader thr
 4. Run `cargo test` and `cargo clippy`
 5. Submit a pull request
 
+## Issue Tracking with Beads
+
+This project uses [Beads](https://github.com/steveyegge/beads) for issue tracking - an AI-native tool that stores issues directly in the repository (`.beads/` directory).
+
+### Why Beads?
+
+- **AI-friendly** - CLI-first design works seamlessly with AI coding agents like Claude Code
+- **Git-native** - Issues sync with your commits, no external service required
+- **Works offline** - Everything is local, syncs when you push
+
+### Quick Reference
+
+```bash
+# Find available work
+bd ready
+
+# View issue details
+bd show <issue-id>
+
+# Start working on an issue
+bd update <issue-id> --status in_progress
+
+# Complete an issue
+bd close <issue-id>
+
+# Create a new issue
+bd create --title="Fix bug in diff viewer" --type=bug --priority=2
+
+# Sync with git
+bd sync
+```
+
+### Installing Beads
+
+```bash
+curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+```
+
+See the [Beads documentation](https://github.com/steveyegge/beads) for more details.
+
 ## License
 
 MIT
