@@ -11,6 +11,9 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph},
 };
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use crate::app::{App, Dialog, Pane, TabKind, inner_area};
 use crate::theme::{self, active_tab_style, border_style, inactive_tab_style};
 use crate::worktree::{WorktreeManager, WorktreeStatus};
@@ -29,19 +32,47 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     // Render status bar with keyboard shortcuts
     render_status_bar(frame, status_area);
 
+    // Fetch worktree statuses for tab display
+    let worktree_statuses = get_worktree_status_map();
+
     // Render tab bar with quit button on the right
     let mut tab_spans = Vec::new();
     for (i, tab) in app.tabs.iter().enumerate() {
-        let label = match &tab.kind {
-            TabKind::ControlPanel { .. } => "0 Control".to_string(),
-            TabKind::Worktree { branch, .. } => format!("{} {}", i, branch),
-        };
         let style = if i == app.active_tab {
             active_tab_style()
         } else {
             inactive_tab_style()
         };
-        tab_spans.push(Span::styled(format!(" {} ", label), style));
+
+        match &tab.kind {
+            TabKind::ControlPanel { .. } => {
+                tab_spans.push(Span::styled(" 0 Control ", style));
+            }
+            TabKind::Worktree { path, branch, .. } => {
+                // Add tab index and truncated branch name
+                let display_name = truncate_middle(branch, 12);
+                tab_spans.push(Span::styled(format!(" {} {} ", i, display_name), style));
+
+                // Add status indicators if available
+                if let Some(status) = worktree_statuses.get(path) {
+                    if status.is_dirty {
+                        tab_spans.push(Span::styled("●", Style::default().fg(theme::RED)));
+                    }
+                    if status.ahead > 0 {
+                        tab_spans.push(Span::styled(
+                            format!("↑{}", status.ahead),
+                            Style::default().fg(theme::GREEN),
+                        ));
+                    }
+                    if status.behind > 0 {
+                        tab_spans.push(Span::styled(
+                            format!("↓{}", status.behind),
+                            Style::default().fg(theme::ORANGE),
+                        ));
+                    }
+                }
+            }
+        }
         tab_spans.push(Span::raw(" "));
     }
     let tab_bar = Line::from(tab_spans);
@@ -348,4 +379,69 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, dialog_area);
+}
+
+/// Get worktree statuses as a map keyed by path for efficient lookup
+fn get_worktree_status_map() -> HashMap<PathBuf, WorktreeStatus> {
+    WorktreeManager::new()
+        .and_then(|m| m.list_with_status())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| (s.worktree.path.clone(), s))
+        .collect()
+}
+
+/// Truncate a string Apple Finder style: "long-name-here" → "long…here"
+/// Keeps beginning and end with ellipsis in the middle.
+fn truncate_middle(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        return s.to_string();
+    }
+
+    if max_len < 5 {
+        // Too short for meaningful truncation
+        return s.chars().take(max_len).collect();
+    }
+
+    // Split: beginning gets slightly more than end
+    let ellipsis = "…";
+    let available = max_len - 1; // 1 char for ellipsis
+    let start_len = (available + 1) / 2; // Ceiling division
+    let end_len = available / 2;
+
+    let start: String = s.chars().take(start_len).collect();
+    let end: String = s.chars().rev().take(end_len).collect::<Vec<_>>().into_iter().rev().collect();
+
+    format!("{}{}{}", start, ellipsis, end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_middle_short_string() {
+        assert_eq!(truncate_middle("short", 12), "short");
+        assert_eq!(truncate_middle("exactly12ch", 12), "exactly12ch");
+    }
+
+    #[test]
+    fn test_truncate_middle_long_string() {
+        // "implement-the-theme-picker" is 26 chars, truncate to 12
+        // available = 11, start = 6, end = 5
+        assert_eq!(truncate_middle("implement-the-theme-picker", 12), "implem…icker");
+    }
+
+    #[test]
+    fn test_truncate_middle_exact_boundary() {
+        // 13 chars → 12: available=11, start=6, end=5
+        assert_eq!(truncate_middle("abcdefghijklm", 12), "abcdef…ijklm");
+    }
+
+    #[test]
+    fn test_truncate_middle_very_short_max() {
+        assert_eq!(truncate_middle("abcdefgh", 4), "abcd");
+        // 8 chars → 5: available=4, start=2, end=2
+        assert_eq!(truncate_middle("abcdefgh", 5), "ab…gh");
+    }
 }
