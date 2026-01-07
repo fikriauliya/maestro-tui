@@ -134,13 +134,32 @@ pub fn process_control_panel_key(
     // Route input based on focused pane
     match focused_pane {
         ControlPanelPane::Content => {
-            // Handle worktree navigation with up/down and j/k
+            // Check if user is actively typing in the input field
+            let has_input = app
+                .get_control_panel_input()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+
+            // Handle worktree navigation with up/down (and j/k only when not typing)
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Up => {
                     app.current_tab_mut().select_prev_worktree();
                     return KeyAction::Continue;
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Char('k') if !has_input => {
+                    app.current_tab_mut().select_prev_worktree();
+                    return KeyAction::Continue;
+                }
+                KeyCode::Down => {
+                    let worktree_count = wt_manager
+                        .as_ref()
+                        .and_then(|m| m.list_with_status().ok())
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    app.current_tab_mut().select_next_worktree(worktree_count);
+                    return KeyAction::Continue;
+                }
+                KeyCode::Char('j') if !has_input => {
                     let worktree_count = wt_manager
                         .as_ref()
                         .and_then(|m| m.list_with_status().ok())
