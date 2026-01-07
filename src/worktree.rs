@@ -70,7 +70,77 @@ pub struct WorktreeStatus {
     pub behind: usize,
 }
 
-/// Generate a git-friendly branch name from a prompt
+/// Generate a short, meaningful branch name using Claude
+///
+/// Uses `claude -p` to generate a concise, descriptive branch name from the prompt.
+/// Falls back to simple slugification if Claude is unavailable.
+/// Example: "implement the theme picker feature with multiple color schemes" -> "theme-picker"
+pub fn generate_branch_name(prompt: &str) -> String {
+    // Try using Claude to generate a meaningful short name
+    let claude_prompt = format!(
+        "Generate a short git branch name (2-4 words, lowercase, hyphenated) for this task: \"{}\". \
+         Output ONLY the branch name, nothing else. Examples: 'add-auth', 'fix-login-bug', 'theme-picker'",
+        prompt
+    );
+
+    let output = Command::new("claude")
+        .args(["-p", &claude_prompt])
+        .output();
+
+    if let Ok(output) = output
+        && output.status.success()
+    {
+        let name = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_lowercase();
+        // Validate: should be short, hyphenated, alphanumeric
+        let sanitized = sanitize_branch_name(&name);
+        if !sanitized.is_empty() && sanitized.len() <= 30 {
+            return sanitized;
+        }
+    }
+
+    // Fallback to simple slugification
+    slugify_prompt(prompt)
+}
+
+/// Sanitize a branch name to ensure it's git-friendly
+fn sanitize_branch_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+
+    // Remove consecutive dashes and trim
+    let mut result = String::new();
+    let mut prev_dash = true;
+    for c in sanitized.chars() {
+        if c == '-' {
+            if !prev_dash {
+                result.push(c);
+                prev_dash = true;
+            }
+        } else {
+            result.push(c);
+            prev_dash = false;
+        }
+    }
+
+    // Trim trailing dash
+    if result.ends_with('-') {
+        result.pop();
+    }
+
+    result
+}
+
+/// Generate a git-friendly branch name from a prompt (simple fallback)
 ///
 /// Takes the first few words, lowercases, and replaces non-alphanumeric with dashes.
 /// Example: "Add user authentication" -> "add-user-authentication"

@@ -10,7 +10,7 @@ use crate::app::{
     App, Command, ControlPanelPane, Dialog, Pane, TabKind, handle_dialog_key, handle_key,
 };
 use crate::input::key_to_bytes;
-use crate::worktree::{RemoveWarning, WorktreeManager, generate_rebase_prompt, slugify_prompt};
+use crate::worktree::{RemoveWarning, WorktreeManager, generate_branch_name, generate_rebase_prompt};
 
 /// Result of handling an event.
 pub enum KeyAction {
@@ -155,7 +155,7 @@ pub fn process_control_panel_key(
                     if let Some(prompt) = app.take_control_panel_input()
                         && let Some(manager) = wt_manager
                     {
-                        let branch = slugify_prompt(&prompt);
+                        let branch = generate_branch_name(&prompt);
                         if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
                             app.add_worktree_tab(wt.path.clone(), branch, prompt);
                         }

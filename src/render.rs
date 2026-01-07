@@ -55,9 +55,8 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
                 tab_spans.push(Span::styled(" 0 Control ", style));
             }
             TabKind::Worktree { path, branch, .. } => {
-                // Add tab index and truncated branch name
-                let display_name = truncate_middle(branch, 12);
-                tab_spans.push(Span::styled(format!(" {} {} ", i, display_name), style));
+                // Add tab index and branch name (already short from Claude-generated names)
+                tab_spans.push(Span::styled(format!(" {} {} ", i, branch), style));
 
                 // Add dirty indicator if available (ahead/behind shown in control pane)
                 if let Some(status) = worktree_statuses.get(path)
@@ -493,69 +492,4 @@ fn get_worktree_status_map() -> HashMap<PathBuf, WorktreeStatus> {
         .into_iter()
         .map(|s| (s.worktree.path.clone(), s))
         .collect()
-}
-
-/// Truncate a string Apple Finder style: "long-name-here" → "long…here"
-/// Keeps beginning and end with ellipsis in the middle.
-fn truncate_middle(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        return s.to_string();
-    }
-
-    if max_len < 5 {
-        // Too short for meaningful truncation
-        return s.chars().take(max_len).collect();
-    }
-
-    // Split: beginning gets slightly more than end
-    let ellipsis = "…";
-    let available = max_len - 1; // 1 char for ellipsis
-    let start_len = available.div_ceil(2);
-    let end_len = available / 2;
-
-    let start: String = s.chars().take(start_len).collect();
-    let end: String = s
-        .chars()
-        .rev()
-        .take(end_len)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-
-    format!("{}{}{}", start, ellipsis, end)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_truncate_middle_short_string() {
-        assert_eq!(truncate_middle("short", 12), "short");
-        assert_eq!(truncate_middle("exactly12ch", 12), "exactly12ch");
-    }
-
-    #[test]
-    fn test_truncate_middle_long_string() {
-        // "implement-the-theme-picker" is 26 chars, truncate to 12
-        // available = 11, start = 6, end = 5
-        assert_eq!(
-            truncate_middle("implement-the-theme-picker", 12),
-            "implem…icker"
-        );
-    }
-
-    #[test]
-    fn test_truncate_middle_exact_boundary() {
-        // 13 chars → 12: available=11, start=6, end=5
-        assert_eq!(truncate_middle("abcdefghijklm", 12), "abcdef…ijklm");
-    }
-
-    #[test]
-    fn test_truncate_middle_very_short_max() {
-        assert_eq!(truncate_middle("abcdefgh", 4), "abcd");
-        // 8 chars → 5: available=4, start=2, end=2
-        assert_eq!(truncate_middle("abcdefgh", 5), "ab…gh");
-    }
 }
