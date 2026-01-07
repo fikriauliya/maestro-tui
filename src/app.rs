@@ -43,6 +43,16 @@ pub enum ControlPanelPane {
     Claude,
 }
 
+/// Focus within the Content pane (input field vs worktrees list)
+#[derive(Default, PartialEq, Clone, Copy, Debug)]
+pub enum ContentFocus {
+    /// New task input field
+    #[default]
+    Input,
+    /// Worktrees list
+    Worktrees,
+}
+
 /// The kind of tab - control panel or worktree terminal
 #[derive(Debug, Clone, PartialEq)]
 pub enum TabKind {
@@ -55,6 +65,8 @@ pub enum TabKind {
         focused_pane: ControlPanelPane,
         /// Currently selected worktree index (for merge/remove operations)
         selected_worktree: usize,
+        /// Focus within the content pane (input vs worktrees)
+        content_focus: ContentFocus,
     },
     /// Worktree tab with dual terminal panes
     Worktree {
@@ -127,6 +139,7 @@ impl Tab {
                 bd_ready_output: Vec::new(),
                 focused_pane: ControlPanelPane::Content,
                 selected_worktree: 0,
+                content_focus: ContentFocus::default(),
             },
             focused: Pane::Left,
             pair: TerminalPair::new(),
@@ -144,6 +157,7 @@ impl Tab {
                 bd_ready_output: Vec::new(),
                 focused_pane: ControlPanelPane::Content,
                 selected_worktree: 0,
+                content_focus: ContentFocus::default(),
             },
             focused: Pane::Left,
             pair: TerminalPair::new(),
@@ -338,6 +352,25 @@ impl Tab {
                 ControlPanelPane::Content => ControlPanelPane::Claude,
                 ControlPanelPane::Claude => ControlPanelPane::Content,
             };
+        }
+    }
+
+    /// Get the content focus within the content pane
+    pub fn content_focus(&self) -> ContentFocus {
+        match &self.kind {
+            TabKind::ControlPanel { content_focus, .. } => *content_focus,
+            _ => ContentFocus::Input,
+        }
+    }
+
+    /// Set the content focus within the content pane
+    pub fn set_content_focus(&mut self, focus: ContentFocus) {
+        if let TabKind::ControlPanel {
+            ref mut content_focus,
+            ..
+        } = self.kind
+        {
+            *content_focus = focus;
         }
     }
 

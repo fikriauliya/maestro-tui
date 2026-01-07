@@ -7,7 +7,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
 use ratatui::layout::Rect;
 
 use crate::app::{
-    App, Command, ControlPanelPane, Dialog, Pane, TabKind, handle_dialog_key, handle_key,
+    App, Command, ContentFocus, ControlPanelPane, Dialog, Pane, TabKind, handle_dialog_key,
+    handle_key,
 };
 use crate::input::key_to_bytes;
 use crate::worktree::{RemoveWarning, WorktreeManager, generate_branch_name, generate_rebase_prompt};
@@ -128,73 +129,90 @@ pub fn process_control_panel_key(
         }
     }
 
+    // Handle Ctrl+j/k for navigating between input and worktrees within content pane
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        match key.code {
+            KeyCode::Char('j') => {
+                // Move focus down: Input -> Worktrees
+                app.current_tab_mut().set_content_focus(ContentFocus::Worktrees);
+                return KeyAction::Continue;
+            }
+            KeyCode::Char('k') => {
+                // Move focus up: Worktrees -> Input
+                app.current_tab_mut().set_content_focus(ContentFocus::Input);
+                return KeyAction::Continue;
+            }
+            _ => {}
+        }
+    }
+
     // Get the focused pane
     let focused_pane = app.current_tab().control_panel_pane();
 
     // Route input based on focused pane
     match focused_pane {
         ControlPanelPane::Content => {
-            // Check if user is actively typing in the input field
-            let has_input = app
-                .get_control_panel_input()
-                .map(|s| !s.is_empty())
-                .unwrap_or(false);
+            let content_focus = app.current_tab().content_focus();
 
-            // Handle worktree navigation with up/down (and j/k only when not typing)
-            match key.code {
-                KeyCode::Up => {
-                    app.current_tab_mut().select_prev_worktree();
-                    return KeyAction::Continue;
-                }
-                KeyCode::Char('k') if !has_input => {
-                    app.current_tab_mut().select_prev_worktree();
-                    return KeyAction::Continue;
-                }
-                KeyCode::Down => {
-                    let worktree_count = wt_manager
-                        .as_ref()
-                        .and_then(|m| m.list_with_status().ok())
-                        .map(|v| v.len())
-                        .unwrap_or(0);
-                    app.current_tab_mut().select_next_worktree(worktree_count);
-                    return KeyAction::Continue;
-                }
-                KeyCode::Char('j') if !has_input => {
-                    let worktree_count = wt_manager
-                        .as_ref()
-                        .and_then(|m| m.list_with_status().ok())
-                        .map(|v| v.len())
-                        .unwrap_or(0);
-                    app.current_tab_mut().select_next_worktree(worktree_count);
-                    return KeyAction::Continue;
-                }
-                _ => {}
-            }
-
-            // Handle text input for worktree creation or worktree action
-            match key.code {
-                KeyCode::Enter => {
-                    // Check if there's input text - if so, create new worktree
-                    if let Some(prompt) = app.take_control_panel_input()
-                        && let Some(manager) = wt_manager
-                    {
-                        let branch = generate_branch_name(&prompt);
-                        if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
-                            app.add_worktree_tab(wt.path.clone(), branch, prompt);
-                        }
-                    } else {
-                        // No input text - show action dialog for selected worktree
-                        if let Some(branch) = get_selected_worktree_branch(app, wt_manager) {
-                            // Don't show action dialog for main/master
-                            if branch != "main" && branch != "master" {
-                                app.dialog = Dialog::WorktreeAction { branch };
+            // Handle navigation based on content focus
+            match content_focus {
+                ContentFocus::Input => {
+                    // Input field is focused - handle text input
+                    match key.code {
+                        KeyCode::Enter => {
+                            // Check if there's input text - if so, create new worktree
+                            if let Some(prompt) = app.take_control_panel_input()
+                                && let Some(manager) = wt_manager
+                            {
+                                let branch = generate_branch_name(&prompt);
+                                if let Ok(wt) = manager.create(&branch, Some(&prompt)) {
+                                    app.add_worktree_tab(wt.path.clone(), branch, prompt);
+                                }
                             }
                         }
+                        KeyCode::Backspace => app.execute(Command::DeleteControlPanelChar),
+                        KeyCode::Char(c) => app.execute(Command::UpdateControlPanelInput(c)),
+                        KeyCode::Up => {
+                            // Arrow keys still navigate worktrees even when input focused
+                            app.current_tab_mut().select_prev_worktree();
+                        }
+                        KeyCode::Down => {
+                            let worktree_count = wt_manager
+                                .as_ref()
+                                .and_then(|m| m.list_with_status().ok())
+                                .map(|v| v.len())
+                                .unwrap_or(0);
+                            app.current_tab_mut().select_next_worktree(worktree_count);
+                        }
+                        _ => {}
                     }
                 }
-                KeyCode::Backspace => app.execute(Command::DeleteControlPanelChar),
-                KeyCode::Char(c) => app.execute(Command::UpdateControlPanelInput(c)),
-                _ => {}
+                ContentFocus::Worktrees => {
+                    // Worktrees list is focused - handle navigation and selection
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app.current_tab_mut().select_prev_worktree();
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            let worktree_count = wt_manager
+                                .as_ref()
+                                .and_then(|m| m.list_with_status().ok())
+                                .map(|v| v.len())
+                                .unwrap_or(0);
+                            app.current_tab_mut().select_next_worktree(worktree_count);
+                        }
+                        KeyCode::Enter => {
+                            // Show action dialog for selected worktree
+                            if let Some(branch) = get_selected_worktree_branch(app, wt_manager) {
+                                // Don't show action dialog for main/master
+                                if branch != "main" && branch != "master" {
+                                    app.dialog = Dialog::WorktreeAction { branch };
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         ControlPanelPane::Claude => {

@@ -13,7 +13,7 @@ use ratatui::{
 
 use ratatui::style::Color;
 
-use crate::app::{App, ControlPanelPane, Dialog, Pane, TabKind, inner_area};
+use crate::app::{App, ContentFocus, ControlPanelPane, Dialog, Pane, TabKind, inner_area};
 use crate::theme::{self, Theme, ALL_THEMES};
 
 /// Render the entire application UI.
@@ -144,11 +144,16 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     ])
     .areas(area);
 
+    // Get content focus state for sub-pane highlighting
+    let content_focus = app.current_tab().content_focus();
+    let worktrees_focused = is_focused && content_focus == ContentFocus::Worktrees;
+    let input_focused = is_focused && content_focus == ContentFocus::Input;
+
     // Render input field (top)
-    render_input_pane(app, frame, input_area, is_focused, theme);
+    render_input_pane(app, frame, input_area, input_focused, theme);
 
     // Render worktrees pane (middle)
-    render_worktrees_pane(app, frame, worktrees_area, is_focused, theme);
+    render_worktrees_pane(app, frame, worktrees_area, worktrees_focused, theme);
 
     // Render ready issues pane (bottom)
     render_issues_pane(app, frame, issues_area, theme);
@@ -165,7 +170,7 @@ fn render_input_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: bool,
         .title("New Task (creates worktree + tab)")
         .border_style(Style::default().fg(theme.border_color(is_focused)));
 
-    // Show cursor indicator only when content pane is focused
+    // Show cursor indicator only when input is focused
     let input_display = if is_focused {
         format!("{}_", input_text)
     } else {
