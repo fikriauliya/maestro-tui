@@ -114,3 +114,152 @@ impl TerminalPair {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_rect(width: u16, height: u16) -> Rect {
+        Rect::new(0, 0, width, height)
+    }
+
+    // --- new() tests ---
+
+    #[test]
+    fn test_new_creates_empty_pair() {
+        let pair = TerminalPair::new();
+        assert!(pair.get(Pane::Left).is_none());
+        assert!(pair.get(Pane::Right).is_none());
+    }
+
+    #[test]
+    fn test_default_creates_empty_pair() {
+        let pair = TerminalPair::default();
+        assert!(pair.get(Pane::Left).is_none());
+        assert!(pair.get(Pane::Right).is_none());
+    }
+
+    // --- needs_left/needs_right tests ---
+
+    #[test]
+    fn test_needs_left_when_empty_and_valid_area() {
+        let pair = TerminalPair::new();
+        // Border takes 2 chars each side, so need > 4 width and > 2 height
+        let area = make_rect(80, 24);
+        assert!(pair.needs_left(area));
+    }
+
+    #[test]
+    fn test_needs_right_when_empty_and_valid_area() {
+        let pair = TerminalPair::new();
+        let area = make_rect(80, 24);
+        assert!(pair.needs_right(area));
+    }
+
+    #[test]
+    fn test_needs_left_false_when_area_too_small() {
+        let pair = TerminalPair::new();
+        // inner_area subtracts borders, so a 2x2 area has 0x0 inner
+        let area = make_rect(2, 2);
+        assert!(!pair.needs_left(area));
+    }
+
+    #[test]
+    fn test_needs_right_false_when_area_too_small() {
+        let pair = TerminalPair::new();
+        let area = make_rect(2, 2);
+        assert!(!pair.needs_right(area));
+    }
+
+    #[test]
+    fn test_needs_left_false_when_zero_width() {
+        let pair = TerminalPair::new();
+        let area = make_rect(0, 24);
+        assert!(!pair.needs_left(area));
+    }
+
+    #[test]
+    fn test_needs_right_false_when_zero_height() {
+        let pair = TerminalPair::new();
+        let area = make_rect(80, 0);
+        assert!(!pair.needs_right(area));
+    }
+
+    // --- needs_*_resize tests ---
+
+    #[test]
+    fn test_needs_right_resize_false_when_no_terminal() {
+        let pair = TerminalPair::new();
+        let area = make_rect(80, 24);
+        assert!(pair.needs_right_resize(area).is_none());
+    }
+
+    #[test]
+    fn test_needs_left_resize_false_when_no_terminal() {
+        let pair = TerminalPair::new();
+        let area = make_rect(80, 24);
+        assert!(pair.needs_left_resize(area).is_none());
+    }
+
+    // --- update_*_size tests ---
+
+    #[test]
+    fn test_update_right_size_changes_last_size() {
+        let mut pair = TerminalPair::new();
+        assert_eq!(pair.last_right_size, (0, 0));
+
+        // Update to new size
+        let area = make_rect(100, 50);
+        pair.update_right_size(area);
+
+        // inner_area: width - 2, height - 2
+        assert_eq!(pair.last_right_size, (98, 48));
+    }
+
+    #[test]
+    fn test_update_left_size_changes_last_size() {
+        let mut pair = TerminalPair::new();
+        assert_eq!(pair.last_left_size, (0, 0));
+
+        let area = make_rect(80, 24);
+        pair.update_left_size(area);
+
+        assert_eq!(pair.last_left_size, (78, 22));
+    }
+
+    // --- get tests ---
+
+    #[test]
+    fn test_get_returns_none_for_empty_left() {
+        let pair = TerminalPair::new();
+        assert!(pair.get(Pane::Left).is_none());
+    }
+
+    #[test]
+    fn test_get_returns_none_for_empty_right() {
+        let pair = TerminalPair::new();
+        assert!(pair.get(Pane::Right).is_none());
+    }
+
+    #[test]
+    fn test_get_mut_returns_none_for_empty_left() {
+        let mut pair = TerminalPair::new();
+        assert!(pair.get_mut(Pane::Left).is_none());
+    }
+
+    #[test]
+    fn test_get_mut_returns_none_for_empty_right() {
+        let mut pair = TerminalPair::new();
+        assert!(pair.get_mut(Pane::Right).is_none());
+    }
+
+    // --- scroll tests (no-op when no terminal) ---
+
+    #[test]
+    fn test_scroll_noop_when_no_terminal() {
+        let mut pair = TerminalPair::new();
+        // Should not panic when scrolling with no terminal
+        pair.scroll(Pane::Left, 10);
+        pair.scroll(Pane::Right, -5);
+    }
+}

@@ -861,4 +861,364 @@ branch refs/heads/feature
     fn test_slugify_prompt_consecutive_special() {
         assert_eq!(slugify_prompt("test--multiple---dashes"), "test-multiple-dashes");
     }
+
+    // --- create tests ---
+
+    #[test]
+    fn test_create_worktree_succeeds() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/tmp/test-project\n"),
+        );
+        git.set_raw_response(
+            &["worktree", "add", "-b", "feature-x", "/tmp/test-project.feature-x"],
+            success_output(""),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let worktree = manager.create("feature-x", Some("Test prompt")).unwrap();
+
+        assert_eq!(worktree.path, PathBuf::from("/tmp/test-project.feature-x"));
+        assert_eq!(worktree.branch, Some("feature-x".to_string()));
+        assert!(!worktree.is_main);
+        assert!(!worktree.is_bare);
+    }
+
+    // --- remove tests ---
+
+    #[test]
+    fn test_remove_returns_not_merged_warning() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        // List worktrees
+        git.set_raw_response(
+            &["worktree", "list", "--porcelain"],
+            success_output(
+                "\
+worktree /home/user/project
+branch refs/heads/main
+
+worktree /home/user/project.feature
+branch refs/heads/feature
+",
+            ),
+        );
+        // Check merged - returns empty (not merged)
+        git.set_raw_response(
+            &["branch", "--merged", "main"],
+            success_output("  main\n"),
+        );
+        // Check uncommitted changes - clean
+        git.set_raw_response(
+            &["status", "--porcelain"],
+            success_output(""),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let warnings = manager.remove("feature", false).unwrap();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(matches!(
+            &warnings[0],
+            RemoveWarning::NotMerged { branch } if branch == "feature"
+        ));
+    }
+
+    #[test]
+    fn test_remove_returns_uncommitted_changes_warning() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        git.set_raw_response(
+            &["worktree", "list", "--porcelain"],
+            success_output(
+                "\
+worktree /home/user/project
+branch refs/heads/main
+
+worktree /home/user/project.feature
+branch refs/heads/feature
+",
+            ),
+        );
+        // Check merged - branch is merged
+        git.set_raw_response(
+            &["branch", "--merged", "main"],
+            success_output("  main\n  feature\n"),
+        );
+        // Check uncommitted changes - has changes
+        git.set_raw_response(
+            &["status", "--porcelain"],
+            success_output(" M src/main.rs\n"),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let warnings = manager.remove("feature", false).unwrap();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(matches!(&warnings[0], RemoveWarning::UncommittedChanges));
+    }
+
+    #[test]
+    fn test_remove_with_force_proceeds() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        git.set_raw_response(
+            &["worktree", "list", "--porcelain"],
+            success_output(
+                "\
+worktree /home/user/project
+branch refs/heads/main
+
+worktree /home/user/project.feature
+branch refs/heads/feature
+",
+            ),
+        );
+        // Not merged
+        git.set_raw_response(
+            &["branch", "--merged", "main"],
+            success_output("  main\n"),
+        );
+        // Has changes
+        git.set_raw_response(
+            &["status", "--porcelain"],
+            success_output(" M src/main.rs\n"),
+        );
+        // Force remove succeeds
+        git.set_raw_response(
+            &["worktree", "remove", "--force", "/home/user/project.feature"],
+            success_output(""),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let warnings = manager.remove("feature", true).unwrap();
+
+        // Should have warnings but proceed anyway
+        assert_eq!(warnings.len(), 2);
+    }
+
+    // --- get_ahead_behind tests ---
+
+    #[test]
+    fn test_get_ahead_behind_returns_counts() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        // Check for main branch
+        git.set_raw_response(
+            &["rev-parse", "--verify", "main"],
+            success_output("abc123\n"),
+        );
+        // rev-list output: behind ahead
+        git.set_raw_response(
+            &["rev-list", "--left-right", "--count", "main...feature"],
+            success_output("2\t5\n"),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let (ahead, behind) = manager.get_ahead_behind("feature").unwrap();
+
+        assert_eq!(ahead, 5);
+        assert_eq!(behind, 2);
+    }
+
+    #[test]
+    fn test_get_ahead_behind_main_branch_is_zero() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        git.set_raw_response(
+            &["rev-parse", "--verify", "main"],
+            success_output("abc123\n"),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let (ahead, behind) = manager.get_ahead_behind("main").unwrap();
+
+        assert_eq!(ahead, 0);
+        assert_eq!(behind, 0);
+    }
+
+    // --- merge tests ---
+
+    #[test]
+    fn test_merge_with_custom_message() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        // Check for main branch
+        git.set_raw_response(
+            &["rev-parse", "--verify", "main"],
+            success_output("abc123\n"),
+        );
+        // Checkout main
+        git.set_raw_response(
+            &["checkout", "main"],
+            success_output(""),
+        );
+        // Merge with message
+        git.set_raw_response(
+            &["merge", "feature", "-m", "Custom merge message"],
+            success_output(""),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let result = manager.merge("feature", Some("Custom merge message"));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_merge_without_message() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        git.set_raw_response(
+            &["rev-parse", "--verify", "main"],
+            success_output("abc123\n"),
+        );
+        git.set_raw_response(
+            &["checkout", "main"],
+            success_output(""),
+        );
+        git.set_raw_response(
+            &["merge", "feature"],
+            success_output(""),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let result = manager.merge("feature", None);
+
+        assert!(result.is_ok());
+    }
+
+    // --- list_with_status tests ---
+
+    #[test]
+    fn test_list_with_status_includes_dirty_and_ahead_behind() {
+        use mock::{success_output, MockGit};
+
+        let git = MockGit::new();
+        git.set_raw_response(
+            &["rev-parse", "--show-toplevel"],
+            success_output("/home/user/project\n"),
+        );
+        git.set_raw_response(
+            &["worktree", "list", "--porcelain"],
+            success_output(
+                "\
+worktree /home/user/project
+branch refs/heads/main
+
+worktree /home/user/project.feature
+branch refs/heads/feature
+",
+            ),
+        );
+        // Main is clean
+        git.set_raw_response(
+            &["status", "--porcelain"],
+            success_output(""),
+        );
+        // Check main branch exists
+        git.set_raw_response(
+            &["rev-parse", "--verify", "main"],
+            success_output("abc123\n"),
+        );
+        // Main is at 0,0
+        git.set_raw_response(
+            &["rev-list", "--left-right", "--count", "main...main"],
+            success_output("0\t0\n"),
+        );
+        // Feature is 1 ahead, 2 behind
+        git.set_raw_response(
+            &["rev-list", "--left-right", "--count", "main...feature"],
+            success_output("2\t1\n"),
+        );
+
+        let manager = WorktreeManager::with_backend(git).unwrap();
+        let statuses = manager.list_with_status().unwrap();
+
+        assert_eq!(statuses.len(), 2);
+
+        // Main worktree
+        assert_eq!(statuses[0].worktree.branch, Some("main".to_string()));
+        assert!(!statuses[0].is_dirty);
+        assert_eq!(statuses[0].ahead, 0);
+        assert_eq!(statuses[0].behind, 0);
+
+        // Feature worktree
+        assert_eq!(statuses[1].worktree.branch, Some("feature".to_string()));
+        assert_eq!(statuses[1].ahead, 1);
+        assert_eq!(statuses[1].behind, 2);
+    }
+
+    // --- RemoveWarning tests ---
+
+    #[test]
+    fn test_remove_warning_equality() {
+        let w1 = RemoveWarning::NotMerged { branch: "test".to_string() };
+        let w2 = RemoveWarning::NotMerged { branch: "test".to_string() };
+        let w3 = RemoveWarning::NotMerged { branch: "other".to_string() };
+        let w4 = RemoveWarning::UncommittedChanges;
+
+        assert_eq!(w1, w2);
+        assert_ne!(w1, w3);
+        assert_ne!(w1, w4);
+    }
+
+    // --- WorktreeStatus tests ---
+
+    #[test]
+    fn test_worktree_status_debug() {
+        let status = WorktreeStatus {
+            worktree: Worktree {
+                path: PathBuf::from("/test"),
+                branch: Some("main".to_string()),
+                is_main: true,
+                is_bare: false,
+            },
+            is_dirty: true,
+            ahead: 5,
+            behind: 3,
+        };
+
+        // Just verify Debug trait is implemented
+        let debug_str = format!("{:?}", status);
+        assert!(debug_str.contains("WorktreeStatus"));
+    }
 }
