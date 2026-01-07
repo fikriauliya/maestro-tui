@@ -1,6 +1,7 @@
 mod app;
 mod diff_viewer;
 mod event_handler;
+mod file_watcher;
 mod input;
 mod pty;
 mod render;
@@ -23,6 +24,7 @@ use crate::event_handler::{
     KeyAction, load_bd_ready, process_control_panel_key, process_dialog_key, process_mouse_click,
     process_terminal_key,
 };
+use crate::file_watcher::FileWatcher;
 use crate::worktree::WorktreeManager;
 
 fn main() -> color_eyre::Result<()> {
@@ -80,20 +82,70 @@ fn run(
     let mut quit_button_x = 0u16;
     let mut main_area = Rect::default();
 
-    // Track last diff refresh time for polling
-    let mut last_diff_refresh = Instant::now();
-    const DIFF_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+    // Initialize file watcher for event-driven diff updates
+    let mut file_watcher = FileWatcher::new().ok();
 
-    // Track last worktree check time
+    // Watch all existing worktree paths
+    if let Some(ref mut watcher) = file_watcher {
+        for tab in &app.tabs {
+            if let Some(path) = tab.worktree_path() {
+                let _ = watcher.watch(path.clone());
+            }
+        }
+    }
+
+    // Track last worktree check time (still needed for detecting removed worktrees)
     let mut last_worktree_check = Instant::now();
     const WORKTREE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
+    // Fallback polling interval when file watcher is unavailable
+    let mut last_diff_refresh = Instant::now();
+    const FALLBACK_DIFF_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+
+    // Track tab count to detect newly added tabs
+    let mut last_tab_count = app.tabs.len();
+
     loop {
-        // Refresh diff viewers and worktree statuses periodically
-        if last_diff_refresh.elapsed() >= DIFF_REFRESH_INTERVAL {
-            for tab in &mut app.tabs {
-                tab.refresh_diff_viewer();
+        // Watch any newly added worktree tabs
+        if app.tabs.len() > last_tab_count {
+            if let Some(ref mut watcher) = file_watcher {
+                for tab in app.tabs.iter().skip(last_tab_count) {
+                    if let Some(path) = tab.worktree_path() {
+                        let _ = watcher.watch(path.clone());
+                    }
+                }
             }
+            last_tab_count = app.tabs.len();
+        } else if app.tabs.len() < last_tab_count {
+            // Tabs were removed, update count
+            last_tab_count = app.tabs.len();
+        }
+
+        // Check for file changes via file watcher (event-driven)
+        if let Some(ref watcher) = file_watcher {
+            let changed_paths = watcher.get_changed_worktrees();
+            if !changed_paths.is_empty() {
+                // Refresh only the tabs whose worktrees changed
+                for tab in &mut app.tabs {
+                    if let Some(path) = tab.worktree_path()
+                        && changed_paths.contains(path)
+                    {
+                        tab.refresh_diff_viewer();
+                    }
+                }
+            }
+        } else {
+            // Fallback: timer-based polling if file watcher failed to initialize
+            if last_diff_refresh.elapsed() >= FALLBACK_DIFF_REFRESH_INTERVAL {
+                for tab in &mut app.tabs {
+                    tab.refresh_diff_viewer();
+                }
+                last_diff_refresh = Instant::now();
+            }
+        }
+
+        // Refresh worktree statuses periodically (for tab dirty indicators)
+        if last_diff_refresh.elapsed() >= FALLBACK_DIFF_REFRESH_INTERVAL {
             app.refresh_worktree_statuses();
             last_diff_refresh = Instant::now();
         }
@@ -122,7 +174,13 @@ fn run(
                     .collect();
 
                 // Remove tabs in reverse order to maintain correct indices
+                // Also unwatch their paths
                 for idx in tabs_to_remove.into_iter().rev() {
+                    if let Some(ref mut watcher) = file_watcher
+                        && let Some(path) = app.tabs[idx].worktree_path()
+                    {
+                        let _ = watcher.unwatch(path);
+                    }
                     app.remove_tab(idx);
                 }
             }

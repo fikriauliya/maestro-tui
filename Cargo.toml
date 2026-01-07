@@ -7,8 +7,13 @@ edition = "2024"
 alacritty_terminal = "0.25"
 color-eyre = "0.6.3"
 crossterm = "0.29.0"
+notify = "8"
+notify-debouncer-mini = "0.7"
 portable-pty = "0.9"
 ratatui = "0.30.0"
+
+[dev-dependencies]
+tempfile = "3"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]
