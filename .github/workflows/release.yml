@@ -59,13 +59,13 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../maestro-tui-${{ matrix.target }}.tar.gz ${{ matrix.artifact }}
+          tar czf ../../../maestro-tui-${{ matrix.target }}.tar.gz maestro-tui mae
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../maestro-tui-${{ matrix.target }}.zip ${{ matrix.artifact }}
+          7z a ../../../maestro-tui-${{ matrix.target }}.zip maestro-tui.exe mae.exe
 
       - name: Upload Release Asset (Unix)
         if: matrix.os != 'windows-latest'

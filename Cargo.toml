@@ -10,6 +10,14 @@ keywords = ["tui", "terminal", "emulator", "vim", "ratatui"]
 categories = ["command-line-interface", "development-tools"]
 readme = "README.md"
 
+[[bin]]
+name = "maestro-tui"
+path = "src/main.rs"
+
+[[bin]]
+name = "mae"
+path = "src/main.rs"
+
 [dependencies]
 alacritty_terminal = "0.25"
 color-eyre = "0.6.3"

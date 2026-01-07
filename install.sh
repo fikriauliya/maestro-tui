@@ -82,15 +82,17 @@ install() {
     # Check if we need sudo
     if [[ -w "$INSTALL_DIR" ]]; then
         mv "$tmpdir/${BINARY}" "$INSTALL_DIR/${BINARY}"
+        chmod +x "$INSTALL_DIR/${BINARY}"
+        ln -sf "${BINARY}" "$INSTALL_DIR/mae"
     else
         info "Installing to $INSTALL_DIR (requires sudo)..."
         sudo mv "$tmpdir/${BINARY}" "$INSTALL_DIR/${BINARY}"
+        sudo chmod +x "$INSTALL_DIR/${BINARY}"
+        sudo ln -sf "${BINARY}" "$INSTALL_DIR/mae"
     fi
 
-    chmod +x "$INSTALL_DIR/${BINARY}"
-
     info "Successfully installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
-    info "Run 'maestro-tui' to get started!"
+    info "Run 'maestro-tui' or 'mae' to get started!"
 }
 
 # Check dependencies

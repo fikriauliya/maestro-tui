@@ -41,9 +41,9 @@ Download the latest binary from [GitHub Releases](https://github.com/fikriauliya
 
 ```bash
 # Linux x86_64
-curl -LO https://github.com/fikriauliya/maestro-tui/releases/latest/download/maestro-tui-linux-x86_64.tar.gz
-tar xzf maestro-tui-linux-x86_64.tar.gz
-sudo mv maestro-tui /usr/local/bin/
+curl -LO https://github.com/fikriauliya/maestro-tui/releases/latest/download/maestro-tui-x86_64-unknown-linux-gnu.tar.gz
+tar xzf maestro-tui-x86_64-unknown-linux-gnu.tar.gz
+sudo mv maestro-tui mae /usr/local/bin/
 ```
 
 ### Prerequisites
@@ -65,6 +65,8 @@ The binary will be at `target/release/maestro-tui`.
 
 ```bash
 maestro-tui
+# or use the short alias
+mae
 ```
 
 ### Tabs
