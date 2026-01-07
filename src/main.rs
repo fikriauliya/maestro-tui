@@ -18,7 +18,7 @@ use crossterm::terminal::{
 };
 use ratatui::{Terminal as RatatuiTerminal, backend::CrosstermBackend, layout::Rect};
 
-use crate::app::{App, Command, Dialog, Tab};
+use crate::app::{App, Command, Dialog, Tab, TabKind};
 use crate::event_handler::{
     KeyAction, load_bd_ready, process_control_panel_key, process_dialog_key, process_mouse_click,
     process_terminal_key,
@@ -84,6 +84,10 @@ fn run(
     let mut last_diff_refresh = Instant::now();
     const DIFF_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
+    // Track last worktree check time
+    let mut last_worktree_check = Instant::now();
+    const WORKTREE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+
     loop {
         // Refresh diff viewers periodically
         if last_diff_refresh.elapsed() >= DIFF_REFRESH_INTERVAL {
@@ -91,6 +95,37 @@ fn run(
                 tab.refresh_diff_viewer();
             }
             last_diff_refresh = Instant::now();
+        }
+
+        // Check for removed worktrees periodically and remove their tabs
+        if last_worktree_check.elapsed() >= WORKTREE_CHECK_INTERVAL {
+            if let Some(ref manager) = wt_manager
+                && let Ok(existing_worktrees) = manager.list()
+            {
+                let existing_paths: std::collections::HashSet<_> =
+                    existing_worktrees.iter().map(|wt| &wt.path).collect();
+
+                // Find tabs whose worktree paths no longer exist
+                let tabs_to_remove: Vec<usize> = app
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, tab)| {
+                        if let TabKind::Worktree { ref path, .. } = tab.kind
+                            && !existing_paths.contains(path)
+                        {
+                            return Some(idx);
+                        }
+                        None
+                    })
+                    .collect();
+
+                // Remove tabs in reverse order to maintain correct indices
+                for idx in tabs_to_remove.into_iter().rev() {
+                    app.remove_tab(idx);
+                }
+            }
+            last_worktree_check = Instant::now();
         }
 
         terminal.draw(|frame| {
