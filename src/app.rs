@@ -74,10 +74,6 @@ pub enum Command {
     ScrollUp,
     /// Scroll down (show newer content) - half page
     ScrollDown,
-    /// Merge current worktree branch into main
-    MergeBranch,
-    /// Request to delete current worktree (triggers dialog)
-    DeleteWorktree,
     /// Confirm dialog action (yes)
     DialogConfirm,
     /// Cancel dialog action (no)
@@ -169,6 +165,7 @@ impl Tab {
     }
 
     /// Get branch name if this is a worktree tab
+    #[allow(dead_code)]
     pub fn branch(&self) -> Option<&str> {
         match &self.kind {
             TabKind::Worktree { branch, .. } => Some(branch),
@@ -442,12 +439,6 @@ impl App {
                 // Scroll down half a page (show newer content)
                 self.current_tab_mut().scroll_focused(-15);
             }
-            Command::MergeBranch => {
-                // Handled in main event loop (needs WorktreeManager)
-            }
-            Command::DeleteWorktree => {
-                // Handled in main event loop (needs WorktreeManager)
-            }
             Command::DialogConfirm => {
                 // Handled in main event loop
             }
@@ -555,10 +546,6 @@ pub fn handle_key(key: &KeyEvent) -> Option<Command> {
             KeyCode::Char('u') => return Some(Command::ScrollUp),
             // Alt+d scrolls down (vim-style half page down)
             KeyCode::Char('d') => return Some(Command::ScrollDown),
-            // Alt+m merges current worktree branch into main
-            KeyCode::Char('m') => return Some(Command::MergeBranch),
-            // Alt+r removes/deletes current worktree (with confirmation)
-            KeyCode::Char('r') => return Some(Command::DeleteWorktree),
             // Alt+q quits the application
             KeyCode::Char('q') => return Some(Command::Quit),
             _ => {}
@@ -680,22 +667,6 @@ mod tests {
         assert_eq!(
             handle_key(&make_alt_key(KeyCode::Char('l'))),
             Some(Command::FocusPane(Pane::Right))
-        );
-    }
-
-    #[test]
-    fn test_alt_merge_branch() {
-        assert_eq!(
-            handle_key(&make_alt_key(KeyCode::Char('m'))),
-            Some(Command::MergeBranch)
-        );
-    }
-
-    #[test]
-    fn test_alt_delete_worktree() {
-        assert_eq!(
-            handle_key(&make_alt_key(KeyCode::Char('r'))),
-            Some(Command::DeleteWorktree)
         );
     }
 

@@ -10,30 +10,29 @@ use std::process::Command;
 use color_eyre::Result;
 use color_eyre::eyre::{Context, eyre};
 
-/// Generate a merge commit message using Claude CLI
+/// Generate a rebase prompt for Claude Code to execute
 ///
-/// This function calls the `claude -p` command to generate a commit message
-/// based on the diff. It's kept separate from git operations for testability.
-pub fn generate_merge_message(branch: &str, main_branch: &str, diff: &str) -> Result<String> {
-    let prompt = format!(
-        "Generate a concise git merge commit message for merging branch '{}' into '{}'. \
-         The message should summarize the changes. Here's the diff:\n\n{}",
-        branch, main_branch, diff
-    );
-
-    let output = Command::new("claude")
-        .args(["-p", &prompt])
-        .output()
-        .wrap_err("Failed to execute claude")?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "claude failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+/// This function generates a prompt that will be sent to the Claude Code pane
+/// to perform a rebase operation with conflict resolution and meaningful commit messages.
+/// After successful rebase, Claude will also clean up the worktree.
+pub fn generate_rebase_prompt(branch: &str, worktree_path: &std::path::Path) -> String {
+    format!(
+        "Please perform a complete rebase workflow for branch '{}' in worktree '{}':\n\n\
+         1. Rebase the branch onto main: `git rebase main`\n\
+         2. If there are conflicts, resolve them appropriately and continue the rebase\n\
+         3. After successful rebase, go to the main worktree and fast-forward merge:\n\
+            - `cd ../<main-worktree>` (go to the main repo)\n\
+            - `git merge {} --ff-only`\n\
+         4. Clean up: remove the worktree and delete the branch:\n\
+            - `git worktree remove {}`\n\
+            - `git branch -d {}`\n\n\
+         Let me know when the rebase workflow is complete.",
+        branch,
+        worktree_path.display(),
+        branch,
+        worktree_path.display(),
+        branch
+    )
 }
 
 /// Represents a git worktree
@@ -375,6 +374,7 @@ impl<G: GitBackend> WorktreeManager<G> {
     /// Get the diff between main and a branch
     ///
     /// Returns the diff output as a string, useful for generating commit messages.
+    #[allow(dead_code)]
     pub fn get_branch_diff(&self, branch: &str) -> Result<String> {
         let main_branch = self.get_main_branch()?;
         let diff_output = self
@@ -385,14 +385,30 @@ impl<G: GitBackend> WorktreeManager<G> {
         Ok(String::from_utf8_lossy(&diff_output.stdout).to_string())
     }
 
-    /// Merge a worktree branch into main
+    /// Rebase a worktree branch onto main and fast-forward merge
     ///
-    /// If `commit_message` is provided, uses it for the merge commit.
-    /// Otherwise, uses git's default merge behavior.
-    pub fn merge(&self, branch: &str, commit_message: Option<&str>) -> Result<()> {
+    /// This performs a rebase workflow:
+    /// 1. Rebase the branch onto main (in the worktree)
+    /// 2. Fast-forward merge into main
+    #[allow(dead_code)]
+    pub fn rebase_and_merge(&self, branch: &str) -> Result<()> {
         let main_branch = self.get_main_branch()?;
+        let worktree_path = self.switch(branch)?;
 
-        // Checkout main branch
+        // Step 1: Rebase branch onto main (in the worktree)
+        let output = self
+            .git
+            .execute_in_dir(&worktree_path, &["rebase", &main_branch])
+            .wrap_err("Failed to rebase")?;
+
+        if !output.status.success() {
+            return Err(eyre!(
+                "git rebase failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+
+        // Step 2: Checkout main branch
         let output = self
             .git
             .execute(&["checkout", &main_branch])
@@ -405,21 +421,15 @@ impl<G: GitBackend> WorktreeManager<G> {
             ));
         }
 
-        // Perform merge with or without custom message
-        let output = match commit_message {
-            Some(msg) => self
-                .git
-                .execute(&["merge", branch, "-m", msg])
-                .wrap_err("Failed to merge")?,
-            None => self
-                .git
-                .execute(&["merge", branch])
-                .wrap_err("Failed to merge")?,
-        };
+        // Step 3: Fast-forward merge
+        let output = self
+            .git
+            .execute(&["merge", branch, "--ff-only"])
+            .wrap_err("Failed to fast-forward merge")?;
 
         if !output.status.success() {
             return Err(eyre!(
-                "git merge failed: {}",
+                "git merge --ff-only failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
@@ -1072,56 +1082,55 @@ branch refs/heads/feature
         assert_eq!(behind, 0);
     }
 
-    // --- merge tests ---
+    // --- rebase tests ---
 
     #[test]
-    fn test_merge_with_custom_message() {
+    fn test_rebase_and_merge() {
         use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
             &["rev-parse", "--show-toplevel"],
             success_output("/home/user/project\n"),
+        );
+        // List worktrees (for switch)
+        git.set_raw_response(
+            &["worktree", "list", "--porcelain"],
+            success_output(
+                "\
+worktree /home/user/project
+branch refs/heads/main
+
+worktree /home/user/project.feature
+branch refs/heads/feature
+",
+            ),
         );
         // Check for main branch
         git.set_raw_response(
             &["rev-parse", "--verify", "main"],
             success_output("abc123\n"),
         );
+        // Rebase in worktree
+        git.set_raw_response(&["rebase", "main"], success_output(""));
         // Checkout main
         git.set_raw_response(&["checkout", "main"], success_output(""));
-        // Merge with message
-        git.set_raw_response(
-            &["merge", "feature", "-m", "Custom merge message"],
-            success_output(""),
-        );
+        // Fast-forward merge
+        git.set_raw_response(&["merge", "feature", "--ff-only"], success_output(""));
 
         let manager = WorktreeManager::with_backend(git).unwrap();
-        let result = manager.merge("feature", Some("Custom merge message"));
+        let result = manager.rebase_and_merge("feature");
 
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_merge_without_message() {
-        use mock::{MockGit, success_output};
-
-        let git = MockGit::new();
-        git.set_raw_response(
-            &["rev-parse", "--show-toplevel"],
-            success_output("/home/user/project\n"),
-        );
-        git.set_raw_response(
-            &["rev-parse", "--verify", "main"],
-            success_output("abc123\n"),
-        );
-        git.set_raw_response(&["checkout", "main"], success_output(""));
-        git.set_raw_response(&["merge", "feature"], success_output(""));
-
-        let manager = WorktreeManager::with_backend(git).unwrap();
-        let result = manager.merge("feature", None);
-
-        assert!(result.is_ok());
+    fn test_generate_rebase_prompt() {
+        let prompt = super::generate_rebase_prompt("feature", std::path::Path::new("/tmp/project.feature"));
+        assert!(prompt.contains("feature"));
+        assert!(prompt.contains("/tmp/project.feature"));
+        assert!(prompt.contains("rebase"));
+        assert!(prompt.contains("git worktree remove"));
     }
 
     // --- list_with_status tests ---

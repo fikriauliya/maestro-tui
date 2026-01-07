@@ -10,7 +10,7 @@ use crate::app::{
     App, Command, ControlPanelPane, Dialog, Pane, TabKind, handle_dialog_key, handle_key,
 };
 use crate::input::key_to_bytes;
-use crate::worktree::{RemoveWarning, WorktreeManager, generate_merge_message, slugify_prompt};
+use crate::worktree::{RemoveWarning, WorktreeManager, generate_rebase_prompt, slugify_prompt};
 
 /// Result of handling an event.
 pub enum KeyAction {
@@ -185,65 +185,10 @@ pub fn process_terminal_key(
 
     match cmd {
         Command::Quit => KeyAction::Quit,
-        // Merge and delete operations are only available from control panel
-        Command::MergeBranch | Command::DeleteWorktree => KeyAction::Continue,
         cmd => {
             app.execute(cmd);
             KeyAction::Continue
         }
-    }
-}
-
-/// Merge current worktree branch into main.
-/// Note: This is now only used indirectly via the control panel handlers.
-#[allow(dead_code)]
-fn handle_merge_branch(app: &mut App, wt_manager: &Option<WorktreeManager>) {
-    let Some(manager) = wt_manager else {
-        return;
-    };
-    let Some(branch) = app.current_tab().branch().map(String::from) else {
-        return;
-    };
-
-    // Generate commit message using Claude
-    let commit_msg = manager
-        .get_branch_diff(&branch)
-        .ok()
-        .and_then(|diff| generate_merge_message(&branch, "main", &diff).ok());
-
-    let tab_idx = app.active_tab;
-    if manager.merge(&branch, commit_msg.as_deref()).is_ok() {
-        let _ = manager.remove(&branch, true);
-        app.remove_tab(tab_idx);
-    }
-}
-
-/// Show delete worktree dialog.
-/// Note: This is now only used indirectly via the control panel handlers.
-#[allow(dead_code)]
-fn handle_delete_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
-    let Some(manager) = wt_manager else {
-        return;
-    };
-    let Some(branch) = app.current_tab().branch().map(String::from) else {
-        return;
-    };
-
-    let warnings = manager.remove(&branch, false).unwrap_or_default();
-    let has_uncommitted = warnings
-        .iter()
-        .any(|w| matches!(w, RemoveWarning::UncommittedChanges));
-    let has_unmerged = warnings
-        .iter()
-        .any(|w| matches!(w, RemoveWarning::NotMerged { .. }));
-
-    if has_uncommitted {
-        app.dialog = Dialog::UncommittedChanges { branch };
-    } else {
-        app.dialog = Dialog::ConfirmDelete {
-            branch,
-            unmerged: has_unmerged,
-        };
     }
 }
 
@@ -258,13 +203,15 @@ fn get_selected_worktree_branch(app: &App, wt_manager: &Option<WorktreeManager>)
 }
 
 /// Find the tab index for a given branch name.
+#[allow(dead_code)]
 fn find_tab_for_branch(app: &App, branch: &str) -> Option<usize> {
     app.tabs
         .iter()
         .position(|tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == branch))
 }
 
-/// Merge selected worktree branch into main (from control panel).
+/// Trigger rebase workflow for selected worktree via Claude Code pane.
+/// Sends a prompt to the Claude Code terminal in the control panel.
 fn handle_merge_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
     let Some(manager) = wt_manager else {
         return;
@@ -273,24 +220,28 @@ fn handle_merge_selected_worktree(app: &mut App, wt_manager: &Option<WorktreeMan
         return;
     };
 
-    // Don't merge main branch
+    // Don't rebase main branch
     if branch == "main" || branch == "master" {
         return;
     }
 
-    // Generate commit message using Claude
-    let commit_msg = manager
-        .get_branch_diff(&branch)
-        .ok()
-        .and_then(|diff| generate_merge_message(&branch, "main", &diff).ok());
+    // Get the worktree path
+    let Ok(worktree_path) = manager.switch(&branch) else {
+        return;
+    };
 
-    if manager.merge(&branch, commit_msg.as_deref()).is_ok() {
-        let _ = manager.remove(&branch, true);
-        // Remove the corresponding tab if it exists
-        if let Some(tab_idx) = find_tab_for_branch(app, &branch) {
-            app.remove_tab(tab_idx);
-        }
+    // Generate the rebase prompt
+    let prompt = generate_rebase_prompt(&branch, &worktree_path);
+
+    // Send prompt to Claude Code terminal in control panel
+    if let Some(ref mut term) = app.tabs[0].claude_terminal {
+        // Send the prompt followed by Enter
+        let _ = term.write(prompt.as_bytes());
+        let _ = term.write(b"\r");
     }
+
+    // Focus the Claude pane so user can see the progress
+    app.tabs[0].set_control_panel_pane(ControlPanelPane::Claude);
 }
 
 /// Show delete worktree dialog for selected worktree (from control panel).
