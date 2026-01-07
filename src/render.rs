@@ -263,7 +263,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     };
 
     let input_block = Block::bordered()
-        .title("Prompt")
+        .title("New Task (creates worktree + tab)")
         .border_style(Style::default().fg(theme.border_color(is_focused)));
 
     // Show cursor indicator only when content pane is focused
