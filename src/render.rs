@@ -53,22 +53,10 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
                 let display_name = truncate_middle(branch, 12);
                 tab_spans.push(Span::styled(format!(" {} {} ", i, display_name), style));
 
-                // Add status indicators if available
+                // Add dirty indicator if available (ahead/behind shown in control pane)
                 if let Some(status) = worktree_statuses.get(path) {
                     if status.is_dirty {
                         tab_spans.push(Span::styled("●", Style::default().fg(theme::RED)));
-                    }
-                    if status.ahead > 0 {
-                        tab_spans.push(Span::styled(
-                            format!("↑{}", status.ahead),
-                            Style::default().fg(theme::GREEN),
-                        ));
-                    }
-                    if status.behind > 0 {
-                        tab_spans.push(Span::styled(
-                            format!("↓{}", status.behind),
-                            Style::default().fg(theme::ORANGE),
-                        ));
                     }
                 }
             }
