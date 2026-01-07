@@ -5,7 +5,7 @@
 
 use ratatui::layout::Rect;
 
-use crate::app::{inner_area, Pane};
+use crate::app::{Pane, inner_area};
 use crate::terminal::Terminal;
 
 /// A pair of terminals (left and right panes) with unified management.

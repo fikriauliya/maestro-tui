@@ -131,13 +131,11 @@ impl DiffViewer {
             .output();
 
         let files: Vec<String> = match output {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout)
-                    .lines()
-                    .filter(|s| !s.is_empty())
-                    .map(String::from)
-                    .collect()
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect(),
             _ => Vec::new(),
         };
 
@@ -187,34 +185,19 @@ impl DiffViewer {
                     ))
                 } else if line.starts_with("+++") || line.starts_with("---") {
                     // File path lines - dim
-                    Line::from(Span::styled(
-                        line_owned,
-                        Style::default().fg(theme::TX_3),
-                    ))
+                    Line::from(Span::styled(line_owned, Style::default().fg(theme::TX_3)))
                 } else if line.starts_with("@@") {
                     // Hunk header - cyan
-                    Line::from(Span::styled(
-                        line_owned,
-                        Style::default().fg(theme::CYAN),
-                    ))
+                    Line::from(Span::styled(line_owned, Style::default().fg(theme::CYAN)))
                 } else if line.starts_with('+') {
                     // Addition - green
-                    Line::from(Span::styled(
-                        line_owned,
-                        Style::default().fg(theme::GREEN),
-                    ))
+                    Line::from(Span::styled(line_owned, Style::default().fg(theme::GREEN)))
                 } else if line.starts_with('-') {
                     // Deletion - red
-                    Line::from(Span::styled(
-                        line_owned,
-                        Style::default().fg(theme::RED),
-                    ))
+                    Line::from(Span::styled(line_owned, Style::default().fg(theme::RED)))
                 } else {
                     // Context line - normal text
-                    Line::from(Span::styled(
-                        line_owned,
-                        Style::default().fg(theme::TX),
-                    ))
+                    Line::from(Span::styled(line_owned, Style::default().fg(theme::TX)))
                 }
             })
             .collect()

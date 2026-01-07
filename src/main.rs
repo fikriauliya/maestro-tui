@@ -11,19 +11,17 @@ mod worktree;
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyEventKind, EnableMouseCapture, DisableMouseCapture};
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use crossterm::execute;
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::Rect,
-    Terminal as RatatuiTerminal,
+use crossterm::terminal::{
+    Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::{Terminal as RatatuiTerminal, backend::CrosstermBackend, layout::Rect};
 
 use crate::app::{App, Command, Dialog, Tab};
 use crate::event_handler::{
-    load_bd_ready, process_control_panel_key, process_dialog_key, process_mouse_click,
-    process_terminal_key, KeyAction,
+    KeyAction, load_bd_ready, process_control_panel_key, process_dialog_key, process_mouse_click,
+    process_terminal_key,
 };
 use crate::worktree::WorktreeManager;
 
@@ -41,14 +39,20 @@ fn main() -> color_eyre::Result<()> {
     {
         for wt in worktrees {
             let branch = wt.branch.unwrap_or_else(|| "detached".to_string());
-            app.tabs.push(Tab::with_worktree(wt.path, branch, String::new()));
+            app.tabs
+                .push(Tab::with_worktree(wt.path, branch, String::new()));
         }
     }
 
     // Setup terminal with mouse support
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen, Clear(ClearType::All), EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        Clear(ClearType::All),
+        EnableMouseCapture
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = RatatuiTerminal::new(backend)?;
 
@@ -56,13 +60,21 @@ fn main() -> color_eyre::Result<()> {
 
     // Restore terminal
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), Clear(ClearType::All), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        Clear(ClearType::All),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     result
 }
 
-fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>) -> color_eyre::Result<()> {
+fn run(
+    app: &mut App,
+    terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+) -> color_eyre::Result<()> {
     let wt_manager = WorktreeManager::new().ok();
     let mut tab_area = Rect::default();
     let mut quit_button_x = 0u16;

@@ -4,14 +4,14 @@
 //! control panel, status bar, and dialogs.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
-    Frame,
 };
 
-use crate::app::{inner_area, App, Dialog, Pane, TabKind};
+use crate::app::{App, Dialog, Pane, TabKind, inner_area};
 use crate::theme::{self, active_tab_style, border_style, inactive_tab_style};
 use crate::worktree::{WorktreeManager, WorktreeStatus};
 
@@ -19,9 +19,12 @@ use crate::worktree::{WorktreeManager, WorktreeStatus};
 /// Returns (tab_area, quit_button_x, main_area) for click detection.
 pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
     // Split into tab bar, main area, and status bar
-    let [tab_area, main_area, status_area] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
-            .areas(frame.area());
+    let [tab_area, main_area, status_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
 
     // Render status bar with keyboard shortcuts
     render_status_bar(frame, status_area);
@@ -70,8 +73,7 @@ pub fn render(app: &mut App, frame: &mut Frame) -> (Rect, u16, Rect) {
 fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
     // Split into content area and input area
     let [content_area, input_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(3)])
-            .areas(area);
+        Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).areas(area);
 
     // Render control panel content
     let block = Block::bordered()
@@ -168,7 +170,10 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
                 Span::styled(format!("    {}", trimmed), Style::default().fg(theme::RED))
             } else if trimmed.starts_with("[P1]") || trimmed.contains("[P1]") {
                 // High priority - orange
-                Span::styled(format!("    {}", trimmed), Style::default().fg(theme::ORANGE))
+                Span::styled(
+                    format!("    {}", trimmed),
+                    Style::default().fg(theme::ORANGE),
+                )
             } else {
                 // Normal priority
                 Span::raw(format!("    {}", trimmed))
@@ -272,7 +277,12 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  Delete worktree "),
-                    Span::styled(branch, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        branch,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw("?"),
                 ]),
             ];
@@ -286,9 +296,17 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
             content.push(Line::from(""));
             content.push(Line::from(vec![
                 Span::raw("  Press "),
-                Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Y",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" to confirm, "),
-                Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "N",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" to cancel"),
             ]));
             ("Delete Worktree", content)
@@ -298,7 +316,12 @@ fn render_dialog(dialog: &Dialog, frame: &mut Frame, area: Rect) {
                 Line::from(""),
                 Line::from(vec![
                     Span::raw("  Cannot delete "),
-                    Span::styled(branch, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        branch,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 ]),
                 Line::from(""),
                 Line::from(Span::styled(

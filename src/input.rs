@@ -70,20 +70,32 @@ mod tests {
     fn test_ctrl_keys() {
         // Ctrl+A = 0x01, Ctrl+C = 0x03, Ctrl+Z = 0x1a
         assert_eq!(
-            key_to_bytes(&make_key_with_mods(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+            key_to_bytes(&make_key_with_mods(
+                KeyCode::Char('a'),
+                KeyModifiers::CONTROL
+            )),
             vec![1]
         );
         assert_eq!(
-            key_to_bytes(&make_key_with_mods(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            key_to_bytes(&make_key_with_mods(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL
+            )),
             vec![3]
         );
         assert_eq!(
-            key_to_bytes(&make_key_with_mods(KeyCode::Char('z'), KeyModifiers::CONTROL)),
+            key_to_bytes(&make_key_with_mods(
+                KeyCode::Char('z'),
+                KeyModifiers::CONTROL
+            )),
             vec![26]
         );
         // Ctrl works case-insensitively
         assert_eq!(
-            key_to_bytes(&make_key_with_mods(KeyCode::Char('C'), KeyModifiers::CONTROL)),
+            key_to_bytes(&make_key_with_mods(
+                KeyCode::Char('C'),
+                KeyModifiers::CONTROL
+            )),
             vec![3]
         );
     }
@@ -140,6 +152,9 @@ mod tests {
     #[test]
     fn test_unicode_chars() {
         assert_eq!(key_to_bytes(&make_key(KeyCode::Char('é'))), "é".as_bytes());
-        assert_eq!(key_to_bytes(&make_key(KeyCode::Char('日'))), "日".as_bytes());
+        assert_eq!(
+            key_to_bytes(&make_key(KeyCode::Char('日'))),
+            "日".as_bytes()
+        );
     }
 }

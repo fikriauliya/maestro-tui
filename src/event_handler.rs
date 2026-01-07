@@ -6,8 +6,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use crate::app::{handle_dialog_key, handle_key, App, Command, Dialog, Pane, TabKind};
-use crate::worktree::{generate_merge_message, slugify_prompt, RemoveWarning, WorktreeManager};
+use crate::app::{App, Command, Dialog, Pane, TabKind, handle_dialog_key, handle_key};
+use crate::worktree::{RemoveWarning, WorktreeManager, generate_merge_message, slugify_prompt};
 
 /// Result of handling an event.
 pub enum KeyAction {
@@ -35,11 +35,7 @@ pub fn load_bd_ready() -> Vec<String> {
 }
 
 /// Handle dialog key events.
-pub fn process_dialog_key(
-    app: &mut App,
-    key: &KeyEvent,
-    wt_manager: &Option<WorktreeManager>,
-) {
+pub fn process_dialog_key(app: &mut App, key: &KeyEvent, wt_manager: &Option<WorktreeManager>) {
     let Some(cmd) = handle_dialog_key(key) else {
         return;
     };
@@ -169,13 +165,20 @@ fn handle_delete_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>) {
     };
 
     let warnings = manager.remove(&branch, false).unwrap_or_default();
-    let has_uncommitted = warnings.iter().any(|w| matches!(w, RemoveWarning::UncommittedChanges));
-    let has_unmerged = warnings.iter().any(|w| matches!(w, RemoveWarning::NotMerged { .. }));
+    let has_uncommitted = warnings
+        .iter()
+        .any(|w| matches!(w, RemoveWarning::UncommittedChanges));
+    let has_unmerged = warnings
+        .iter()
+        .any(|w| matches!(w, RemoveWarning::NotMerged { .. }));
 
     if has_uncommitted {
         app.dialog = Dialog::UncommittedChanges { branch };
     } else {
-        app.dialog = Dialog::ConfirmDelete { branch, unmerged: has_unmerged };
+        app.dialog = Dialog::ConfirmDelete {
+            branch,
+            unmerged: has_unmerged,
+        };
     }
 }
 
@@ -222,7 +225,11 @@ pub fn process_mouse_click(
         && mouse.row < main_area.y + main_area.height
     {
         let mid_x = main_area.x + main_area.width / 2;
-        let pane = if mouse.column < mid_x { Pane::Left } else { Pane::Right };
+        let pane = if mouse.column < mid_x {
+            Pane::Left
+        } else {
+            Pane::Right
+        };
         app.execute(Command::FocusPane(pane));
     }
 

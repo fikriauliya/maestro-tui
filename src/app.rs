@@ -36,7 +36,11 @@ pub enum TabKind {
         bd_ready_output: Vec<String>,
     },
     /// Worktree tab with dual terminal panes
-    Worktree { path: PathBuf, branch: String, prompt: String },
+    Worktree {
+        path: PathBuf,
+        branch: String,
+        prompt: String,
+    },
 }
 
 /// Commands that can be executed by the application
@@ -79,7 +83,10 @@ pub struct Tab {
 impl Tab {
     pub fn new() -> Self {
         Self {
-            kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
+            kind: TabKind::ControlPanel {
+                input: String::new(),
+                bd_ready_output: Vec::new(),
+            },
             focused: Pane::Left,
             pair: TerminalPair::new(),
             diff_viewer: None,
@@ -89,7 +96,10 @@ impl Tab {
     #[allow(dead_code)] // Used in tests
     pub fn control_panel() -> Self {
         Self {
-            kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
+            kind: TabKind::ControlPanel {
+                input: String::new(),
+                bd_ready_output: Vec::new(),
+            },
             focused: Pane::Left,
             pair: TerminalPair::new(),
             diff_viewer: None,
@@ -100,7 +110,11 @@ impl Tab {
         // Create diff viewer for the worktree
         let diff_viewer = Some(DiffViewer::new(path.clone()));
         Self {
-            kind: TabKind::Worktree { path, branch, prompt },
+            kind: TabKind::Worktree {
+                path,
+                branch,
+                prompt,
+            },
             focused: Pane::Left,
             pair: TerminalPair::new(),
             diff_viewer,
@@ -283,7 +297,11 @@ impl App {
                 }
             }
             Command::ReloadBdReady(output) => {
-                if let TabKind::ControlPanel { ref mut bd_ready_output, .. } = self.current_tab_mut().kind {
+                if let TabKind::ControlPanel {
+                    ref mut bd_ready_output,
+                    ..
+                } = self.current_tab_mut().kind
+                {
                     *bd_ready_output = output;
                 }
             }
@@ -337,7 +355,9 @@ impl App {
     /// Get the bd ready output from the control panel tab (tab 0)
     pub fn get_bd_ready_output(&self) -> &[String] {
         match &self.tabs[0].kind {
-            TabKind::ControlPanel { bd_ready_output, .. } => bd_ready_output,
+            TabKind::ControlPanel {
+                bd_ready_output, ..
+            } => bd_ready_output,
             _ => &[],
         }
     }
@@ -623,7 +643,11 @@ mod tests {
     #[test]
     fn test_app_add_worktree_tab() {
         let mut app = App::new();
-        let idx = app.add_worktree_tab(PathBuf::from("/tmp/test"), "test-branch".to_string(), "test prompt".to_string());
+        let idx = app.add_worktree_tab(
+            PathBuf::from("/tmp/test"),
+            "test-branch".to_string(),
+            "test prompt".to_string(),
+        );
         assert_eq!(app.tabs.len(), 2);
         assert_eq!(idx, 1);
         assert_eq!(app.active_tab, 1);
@@ -632,8 +656,16 @@ mod tests {
     #[test]
     fn test_app_remove_tab() {
         let mut app = App::new();
-        app.add_worktree_tab(PathBuf::from("/tmp/test1"), "branch1".to_string(), String::new());
-        app.add_worktree_tab(PathBuf::from("/tmp/test2"), "branch2".to_string(), String::new());
+        app.add_worktree_tab(
+            PathBuf::from("/tmp/test1"),
+            "branch1".to_string(),
+            String::new(),
+        );
+        app.add_worktree_tab(
+            PathBuf::from("/tmp/test2"),
+            "branch2".to_string(),
+            String::new(),
+        );
         assert_eq!(app.tabs.len(), 3);
         assert_eq!(app.active_tab, 2);
 
@@ -658,8 +690,16 @@ mod tests {
     #[test]
     fn test_app_switch_tab() {
         let mut app = App::new();
-        app.add_worktree_tab(PathBuf::from("/tmp/test1"), "branch1".to_string(), String::new());
-        app.add_worktree_tab(PathBuf::from("/tmp/test2"), "branch2".to_string(), String::new());
+        app.add_worktree_tab(
+            PathBuf::from("/tmp/test1"),
+            "branch1".to_string(),
+            String::new(),
+        );
+        app.add_worktree_tab(
+            PathBuf::from("/tmp/test2"),
+            "branch2".to_string(),
+            String::new(),
+        );
         assert_eq!(app.active_tab, 2);
 
         app.execute(Command::SwitchTab(0));
@@ -747,7 +787,11 @@ mod tests {
 
     #[test]
     fn test_tab_kind_worktree() {
-        let tab = Tab::with_worktree(PathBuf::from("/tmp/test"), "feature".to_string(), "my prompt".to_string());
+        let tab = Tab::with_worktree(
+            PathBuf::from("/tmp/test"),
+            "feature".to_string(),
+            "my prompt".to_string(),
+        );
         assert!(!tab.is_control_panel());
         assert_eq!(tab.worktree_path(), Some(&PathBuf::from("/tmp/test")));
         assert_eq!(tab.branch(), Some("feature"));

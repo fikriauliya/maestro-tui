@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use color_eyre::eyre::{eyre, Context};
 use color_eyre::Result;
+use color_eyre::eyre::{Context, eyre};
 
 /// Generate a merge commit message using Claude CLI
 ///
@@ -529,11 +529,7 @@ fn parse_worktree_list(output: &str) -> Result<Vec<Worktree>> {
             }
             current_path = Some(PathBuf::from(line.strip_prefix("worktree ").unwrap()));
         } else if line.starts_with("branch refs/heads/") {
-            current_branch = Some(
-                line.strip_prefix("branch refs/heads/")
-                    .unwrap()
-                    .to_string(),
-            );
+            current_branch = Some(line.strip_prefix("branch refs/heads/").unwrap().to_string());
         } else if line == "bare" {
             is_bare = true;
         }
@@ -631,7 +627,11 @@ pub mod mock {
             }
         }
 
-        fn execute_in_dir(&self, _dir: &Path, args: &[&str]) -> std::io::Result<std::process::Output> {
+        fn execute_in_dir(
+            &self,
+            _dir: &Path,
+            args: &[&str],
+        ) -> std::io::Result<std::process::Output> {
             self.execute(args)
         }
     }
@@ -709,7 +709,7 @@ branch refs/heads/bugfix
 
     #[test]
     fn test_resolve_worktree_path() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -732,7 +732,7 @@ branch refs/heads/bugfix
 
     #[test]
     fn test_manager_repo_info() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -742,16 +742,13 @@ branch refs/heads/bugfix
 
         let manager = WorktreeManager::with_backend(git).unwrap();
 
-        assert_eq!(
-            manager.repo_root(),
-            Path::new("/code/awesome-project")
-        );
+        assert_eq!(manager.repo_root(), Path::new("/code/awesome-project"));
         assert_eq!(manager.repo_name(), "awesome-project");
     }
 
     #[test]
     fn test_list_worktrees() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -781,7 +778,7 @@ branch refs/heads/dev
 
     #[test]
     fn test_switch_finds_worktree() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -809,7 +806,7 @@ branch refs/heads/feature
 
     #[test]
     fn test_switch_not_found() {
-        use mock::{success_output, MockGit};
+        use mock::{MockGit, success_output};
 
         let git = MockGit::new();
         git.set_raw_response(
@@ -825,15 +822,20 @@ branch refs/heads/feature
         let result = manager.switch("nonexistent");
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No worktree found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No worktree found")
+        );
     }
 
     #[test]
     fn test_slugify_prompt_basic() {
-        assert_eq!(slugify_prompt("Add user authentication"), "add-user-authentication");
+        assert_eq!(
+            slugify_prompt("Add user authentication"),
+            "add-user-authentication"
+        );
         assert_eq!(slugify_prompt("Fix bug in login"), "fix-bug-in-login");
     }
 
@@ -859,7 +861,10 @@ branch refs/heads/feature
 
     #[test]
     fn test_slugify_prompt_consecutive_special() {
-        assert_eq!(slugify_prompt("test--multiple---dashes"), "test-multiple-dashes");
+        assert_eq!(
+            slugify_prompt("test--multiple---dashes"),
+            "test-multiple-dashes"
+        );
     }
 
     // --- create tests ---

@@ -3,13 +3,13 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
+use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::cell::Flags as CellFlags;
-use alacritty_terminal::term::{test::TermSize, Config};
+use alacritty_terminal::term::{Config, test::TermSize};
 use alacritty_terminal::vte::ansi::Processor;
-use alacritty_terminal::Term;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -357,7 +357,10 @@ mod tests {
 
         assert_eq!(convert_color(AC::Named(NamedColor::Red)), theme::RED);
         assert_eq!(convert_color(AC::Named(NamedColor::Green)), theme::GREEN);
-        assert_eq!(convert_color(AC::Named(NamedColor::BrightBlue)), theme::PURPLE);
+        assert_eq!(
+            convert_color(AC::Named(NamedColor::BrightBlue)),
+            theme::PURPLE
+        );
     }
 
     #[test]
@@ -365,7 +368,11 @@ mod tests {
         use alacritty_terminal::vte::ansi::Color as AC;
         use alacritty_terminal::vte::ansi::Rgb;
 
-        let rgb = Rgb { r: 255, g: 128, b: 64 };
+        let rgb = Rgb {
+            r: 255,
+            g: 128,
+            b: 64,
+        };
         assert_eq!(convert_color(AC::Spec(rgb)), Color::Rgb(255, 128, 64));
     }
 
