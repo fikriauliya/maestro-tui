@@ -2,6 +2,9 @@
 
 A dual-pane terminal multiplexer designed for AI-assisted development workflows.
 
+<img width="1783" height="948" alt="Screenshot 2026-01-07 at 17 18 19" src="https://github.com/user-attachments/assets/2e2d881b-ffb1-4e5b-9023-35d6fb47b071" />
+
+
 ## Why maestro-tui?
 
 Modern AI coding assistants like Claude Code are powerful, but juggling between your terminal and an AI session breaks your flow. **maestro-tui** solves this by putting your shell and Claude Code side-by-side in a unified interface.
