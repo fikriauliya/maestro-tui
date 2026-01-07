@@ -1,4 +1,5 @@
 mod app;
+mod diff_viewer;
 mod event_handler;
 mod input;
 mod pty;
@@ -8,7 +9,7 @@ mod terminal_pair;
 mod theme;
 mod worktree;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyEventKind, EnableMouseCapture, DisableMouseCapture};
 use crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType};
@@ -67,7 +68,19 @@ fn run(app: &mut App, terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::S
     let mut quit_button_x = 0u16;
     let mut main_area = Rect::default();
 
+    // Track last diff refresh time for polling
+    let mut last_diff_refresh = Instant::now();
+    const DIFF_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+
     loop {
+        // Refresh diff viewers periodically
+        if last_diff_refresh.elapsed() >= DIFF_REFRESH_INTERVAL {
+            for tab in &mut app.tabs {
+                tab.refresh_diff_viewer();
+            }
+            last_diff_refresh = Instant::now();
+        }
+
         terminal.draw(|frame| {
             (tab_area, quit_button_x, main_area) = render::render(app, frame);
         })?;

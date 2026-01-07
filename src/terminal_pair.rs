@@ -9,10 +9,13 @@ use crate::app::{inner_area, Pane};
 use crate::terminal::Terminal;
 
 /// A pair of terminals (left and right panes) with unified management.
+/// Note: Left terminal methods currently unused as left pane shows diff viewer.
 #[derive(Default)]
 pub struct TerminalPair {
+    #[allow(dead_code)]
     left: Option<Terminal>,
     right: Option<Terminal>,
+    #[allow(dead_code)]
     last_left_size: (u16, u16),
     last_right_size: (u16, u16),
 }
@@ -40,6 +43,7 @@ impl TerminalPair {
     }
 
     /// Check if the left terminal needs to be created.
+    #[allow(dead_code)]
     pub fn needs_left(&self, area: Rect) -> bool {
         let inner = inner_area(area);
         self.left.is_none() && inner.width > 0 && inner.height > 0
@@ -52,6 +56,7 @@ impl TerminalPair {
     }
 
     /// Check if left terminal needs resize, returns new size if so.
+    #[allow(dead_code)]
     pub fn needs_left_resize(&self, area: Rect) -> Option<(u16, u16)> {
         let inner = inner_area(area);
         let size = (inner.width, inner.height);
@@ -74,6 +79,7 @@ impl TerminalPair {
     }
 
     /// Set the left terminal and track its size.
+    #[allow(dead_code)]
     pub fn set_left(&mut self, term: Terminal, area: Rect) {
         let inner = inner_area(area);
         self.left = Some(term);
@@ -88,6 +94,7 @@ impl TerminalPair {
     }
 
     /// Update left terminal size tracking after resize.
+    #[allow(dead_code)]
     pub fn update_left_size(&mut self, area: Rect) {
         let inner = inner_area(area);
         self.last_left_size = (inner.width, inner.height);

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 
+use crate::diff_viewer::DiffViewer;
 use crate::input::key_to_bytes;
 use crate::terminal::Terminal;
 use crate::terminal_pair::TerminalPair;
@@ -71,6 +72,8 @@ pub struct Tab {
     pub kind: TabKind,
     pub focused: Pane,
     pub pair: TerminalPair,
+    /// Diff viewer for worktree tabs (replaces left terminal)
+    pub diff_viewer: Option<DiffViewer>,
 }
 
 impl Tab {
@@ -79,6 +82,7 @@ impl Tab {
             kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
             focused: Pane::Left,
             pair: TerminalPair::new(),
+            diff_viewer: None,
         }
     }
 
@@ -88,14 +92,18 @@ impl Tab {
             kind: TabKind::ControlPanel { input: String::new(), bd_ready_output: Vec::new() },
             focused: Pane::Left,
             pair: TerminalPair::new(),
+            diff_viewer: None,
         }
     }
 
     pub fn with_worktree(path: PathBuf, branch: String, prompt: String) -> Self {
+        // Create diff viewer for the worktree
+        let diff_viewer = Some(DiffViewer::new(path.clone()));
         Self {
             kind: TabKind::Worktree { path, branch, prompt },
             focused: Pane::Left,
             pair: TerminalPair::new(),
+            diff_viewer,
         }
     }
 
@@ -128,13 +136,38 @@ impl Tab {
         }
     }
 
-    /// Scroll the focused terminal by the given number of lines (positive = up, negative = down)
+    /// Scroll the focused pane by the given number of lines (positive = up, negative = down)
+    /// For left pane (diff viewer), scrolls the diff. For right pane, scrolls the terminal.
     pub fn scroll_focused(&mut self, lines: i32) {
-        self.pair.scroll(self.focused, lines);
+        match self.focused {
+            Pane::Left => {
+                // Scroll diff viewer
+                if let Some(ref mut dv) = self.diff_viewer {
+                    // Convert: positive lines = scroll up (show older), negative = scroll down (show newer)
+                    // For diff viewer: positive delta scrolls down in the view
+                    dv.scroll(lines as i16);
+                }
+            }
+            Pane::Right => {
+                // Scroll terminal
+                self.pair.scroll(self.focused, lines);
+            }
+        }
+    }
+
+    /// Refresh the diff viewer if present. Returns true if the diff changed.
+    pub fn refresh_diff_viewer(&mut self) -> bool {
+        if let Some(ref mut dv) = self.diff_viewer {
+            dv.refresh()
+        } else {
+            false
+        }
     }
 
     /// Ensure left terminal exists and is properly sized.
     /// Creates a shell terminal if needed, or resizes if dimensions changed.
+    /// Note: Currently unused as left pane shows diff viewer, but kept for potential toggle feature.
+    #[allow(dead_code)]
     pub fn ensure_left_terminal(&mut self, area: Rect) {
         if self.pair.needs_left(area) {
             let inner = inner_area(area);

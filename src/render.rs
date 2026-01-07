@@ -196,30 +196,30 @@ fn render_control_panel(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(input_widget, input_area);
 }
 
-/// Render a terminal tab with left and right panes.
+/// Render a terminal tab with diff viewer on left and Claude terminal on right.
 fn render_terminal_tab(app: &mut App, frame: &mut Frame, main_area: Rect) {
     // Split main area into left and right panes
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(main_area);
 
-    // Ensure terminals exist and are properly sized
+    // Ensure right terminal (Claude) exists and is properly sized
     let tab = app.current_tab_mut();
-    tab.ensure_left_terminal(left);
     tab.ensure_right_terminal(right);
 
     let tab = app.current_tab();
     let left_block = Block::bordered()
-        .title("Terminal")
+        .title("Diff")
         .border_style(border_style(tab.focused == Pane::Left));
     let right_block = Block::bordered()
         .title("Claude")
         .border_style(border_style(tab.focused == Pane::Right));
 
-    // Render left pane with shell terminal
+    // Render left pane with diff viewer
     frame.render_widget(left_block.clone(), left);
-    if let Some(term) = tab.pair.get(Pane::Left) {
-        frame.render_widget(term.widget(), inner_area(left));
+    if let Some(ref dv) = tab.diff_viewer {
+        let inner = inner_area(left);
+        frame.render_widget(dv.widget(inner.height), inner);
     }
 
     // Render right pane with claude terminal
@@ -237,8 +237,8 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
 
     let shortcuts = vec![
         ("Alt+0-9", "Tabs"),
-        ("Alt+h", "Left"),
-        ("Alt+l", "Right"),
+        ("Alt+h/l", "Focus"),
+        ("Alt+u/d", "Scroll"),
         ("Alt+m", "Merge"),
         ("Alt+r", "Remove"),
         ("Alt+q", "Quit"),

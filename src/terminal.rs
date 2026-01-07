@@ -35,6 +35,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
+    #[allow(dead_code)]
     pub fn new(cols: u16, rows: u16) -> color_eyre::Result<Self> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
         Self::with_command(cols, rows, &shell, &[])
