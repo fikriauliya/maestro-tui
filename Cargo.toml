@@ -1,6 +1,6 @@
 [package]
 name = "maestro-tui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["Levi Fikri"]
 description = "A dual-pane terminal emulator TUI with vim-like modal editing"

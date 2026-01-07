@@ -125,7 +125,9 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
     let tab = app.current_tab();
     let right_block = Block::bordered()
         .title("Claude (try: 'do <task>')")
-        .border_style(Style::default().fg(theme.border_color(focused_pane == ControlPanelPane::Claude)));
+        .border_style(
+            Style::default().fg(theme.border_color(focused_pane == ControlPanelPane::Claude)),
+        );
 
     frame.render_widget(right_block.clone(), right_area);
     if let Some(ref term) = tab.claude_terminal {
