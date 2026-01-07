@@ -18,7 +18,7 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
-# Detect OS and architecture
+# Detect OS and architecture - returns Rust target triple
 detect_platform() {
     local os arch
 
@@ -26,18 +26,23 @@ detect_platform() {
     arch="$(uname -m)"
 
     case "$os" in
-        Linux)  os="linux" ;;
-        Darwin) os="darwin" ;;
-        *)      error "Unsupported OS: $os" ;;
+        Linux)
+            case "$arch" in
+                x86_64|amd64)   echo "x86_64-unknown-linux-gnu" ;;
+                *)              error "Unsupported Linux architecture: $arch" ;;
+            esac
+            ;;
+        Darwin)
+            case "$arch" in
+                x86_64|amd64)   echo "x86_64-apple-darwin" ;;
+                aarch64|arm64)  echo "aarch64-apple-darwin" ;;
+                *)              error "Unsupported macOS architecture: $arch" ;;
+            esac
+            ;;
+        *)
+            error "Unsupported OS: $os"
+            ;;
     esac
-
-    case "$arch" in
-        x86_64|amd64)   arch="x86_64" ;;
-        aarch64|arm64)  arch="aarch64" ;;
-        *)              error "Unsupported architecture: $arch" ;;
-    esac
-
-    echo "${os}-${arch}"
 }
 
 # Get the latest release version
