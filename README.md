@@ -26,7 +26,7 @@ Modern AI coding assistants like Claude Code are powerful, but juggling between 
 ### Quick install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/levifikri/maestro-tui/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/fikriauliya/maestro-tui/refs/heads/main/install.sh | bash
 ```
 
 ### From crates.io
