@@ -37,11 +37,11 @@ cargo install maestro-tui
 
 ### From GitHub Releases
 
-Download the latest binary from [GitHub Releases](https://github.com/levifikri/maestro-tui/releases):
+Download the latest binary from [GitHub Releases](https://github.com/fikriauliya/maestro-tui/releases):
 
 ```bash
 # Linux x86_64
-curl -LO https://github.com/levifikri/maestro-tui/releases/latest/download/maestro-tui-linux-x86_64.tar.gz
+curl -LO https://github.com/fikriauliya/maestro-tui/releases/latest/download/maestro-tui-linux-x86_64.tar.gz
 tar xzf maestro-tui-linux-x86_64.tar.gz
 sudo mv maestro-tui /usr/local/bin/
 ```
@@ -54,7 +54,7 @@ sudo mv maestro-tui /usr/local/bin/
 ### Build from source
 
 ```bash
-git clone https://github.com/levifikri/maestro-tui.git
+git clone https://github.com/fikriauliya/maestro-tui.git
 cd maestro-tui
 cargo build --release
 ```

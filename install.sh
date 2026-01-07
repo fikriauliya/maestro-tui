@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # maestro-tui installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/levifikri/maestro-tui/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/fikriauliya/maestro-tui/main/install.sh | bash
 
-REPO="levifikri/maestro-tui"
+REPO="fikriauliya/maestro-tui"
 BINARY="maestro-tui"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
