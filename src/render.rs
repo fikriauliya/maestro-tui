@@ -134,24 +134,52 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
 }
 
 /// Render the content portion of the control panel (left side).
+/// Layout: Input (top) -> Worktrees (middle) -> Ready Issues (bottom)
 fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
-    // Split into content area and input area
-    let [content_area, input_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).areas(area);
+    // Split into three sections: Input (top), Worktrees (middle), Issues (bottom)
+    let [input_area, worktrees_area, issues_area] = Layout::vertical([
+        Constraint::Length(3),  // Input field
+        Constraint::Min(8),     // Worktrees pane (flexible, minimum 8 lines)
+        Constraint::Length(10), // Ready Issues (fixed height)
+    ])
+    .areas(area);
 
-    // Render control panel content
-    let block = Block::bordered()
-        .title("Control Panel")
+    // Render input field (top)
+    render_input_pane(app, frame, input_area, is_focused, theme);
+
+    // Render worktrees pane (middle)
+    render_worktrees_pane(app, frame, worktrees_area, is_focused, theme);
+
+    // Render ready issues pane (bottom)
+    render_issues_pane(app, frame, issues_area, theme);
+}
+
+/// Render the input field for creating new worktree tasks.
+fn render_input_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
+    let input_text = match &app.current_tab().kind {
+        TabKind::ControlPanel { input, .. } => input.as_str(),
+        _ => "",
+    };
+
+    let input_block = Block::bordered()
+        .title("New Task (creates worktree + tab)")
         .border_style(Style::default().fg(theme.border_color(is_focused)));
 
-    let mut lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Enter a prompt to create a new worktree tab:",
-            Style::default().fg(theme.accents.yellow),
-        )),
-        Line::from(""),
-    ];
+    // Show cursor indicator only when content pane is focused
+    let input_display = if is_focused {
+        format!("{}_", input_text)
+    } else {
+        input_text.to_string()
+    };
+    let input_widget = Paragraph::new(input_display).block(input_block);
+    frame.render_widget(input_widget, area);
+}
+
+/// Render the worktrees selection pane.
+fn render_worktrees_pane(app: &App, frame: &mut Frame, area: Rect, is_focused: bool, theme: &Theme) {
+    let block = Block::bordered()
+        .title("Worktrees (j/k to navigate, Enter for actions)")
+        .border_style(Style::default().fg(theme.border_color(is_focused)));
 
     // Use cached worktree status information (refreshed periodically, not every frame)
     let worktree_statuses = app.worktree_statuses();
@@ -159,11 +187,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
     // Get selected worktree index
     let selected_idx = app.current_tab().selected_worktree();
 
-    // List worktrees with status
-    lines.push(Line::from(Span::styled(
-        "  Worktrees: (j/k to navigate, Enter for actions)",
-        Style::default().fg(theme.accents.cyan),
-    )));
+    let mut lines = Vec::new();
 
     for (idx, status) in worktree_statuses.iter().enumerate() {
         let branch = status.worktree.branch.as_deref().unwrap_or("detached");
@@ -192,7 +216,7 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
         }
 
         // Build the line with selection indicator
-        let prefix = if is_selected { "  > " } else { "    " };
+        let prefix = if is_selected { " > " } else { "   " };
         let branch_style = if is_selected {
             Style::default()
                 .fg(Color::Cyan)
@@ -205,29 +229,37 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
         lines.push(Line::from(spans));
     }
 
-    // Legend for worktrees
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::raw("  "),
-        Span::styled("●", Style::default().fg(theme.accents.red)),
-        Span::raw(" dirty  "),
-        Span::styled("↑", Style::default().fg(theme.accents.green)),
-        Span::raw(" ahead  "),
-        Span::styled("↓", Style::default().fg(theme.accents.orange)),
-        Span::raw(" behind"),
-    ]));
+    // Legend for worktrees (at the bottom of the pane)
+    if !worktree_statuses.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("●", Style::default().fg(theme.accents.red)),
+            Span::raw(" dirty  "),
+            Span::styled("↑", Style::default().fg(theme.accents.green)),
+            Span::raw(" ahead  "),
+            Span::styled("↓", Style::default().fg(theme.accents.orange)),
+            Span::raw(" behind"),
+        ]));
+    }
 
-    // Add bd ready section
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  Ready Issues ", Style::default().fg(theme.accents.cyan)),
-        Span::styled("[Alt+b to reload]", Style::default().fg(theme.tx_muted)),
-    ]));
+    let content = Paragraph::new(lines).block(block);
+    frame.render_widget(content, area);
+}
+
+/// Render the ready issues pane.
+fn render_issues_pane(app: &App, frame: &mut Frame, area: Rect, theme: &Theme) {
+    let block = Block::bordered()
+        .title("Ready Issues [Alt+b to reload]")
+        .border_style(Style::default().fg(theme.border_color(false)));
 
     let bd_ready_output = app.get_bd_ready_output();
+
+    let mut lines = Vec::new();
+
     if bd_ready_output.is_empty() {
         lines.push(Line::from(Span::styled(
-            "    (no bd ready output)",
+            " (no ready issues)",
             Style::default().fg(theme.tx_muted),
         )));
     } else {
@@ -241,39 +273,20 @@ fn render_control_panel_content(app: &App, frame: &mut Frame, area: Rect, is_foc
             // Display issue lines with some styling
             let styled_line = if trimmed.starts_with("[P0]") || trimmed.contains("[P0]") {
                 // Critical priority - red
-                Span::styled(format!("    {}", trimmed), Style::default().fg(theme.accents.red))
+                Span::styled(format!(" {}", trimmed), Style::default().fg(theme.accents.red))
             } else if trimmed.starts_with("[P1]") || trimmed.contains("[P1]") {
                 // High priority - orange
-                Span::styled(format!("    {}", trimmed), Style::default().fg(theme.accents.orange))
+                Span::styled(format!(" {}", trimmed), Style::default().fg(theme.accents.orange))
             } else {
                 // Normal priority
-                Span::raw(format!("    {}", trimmed))
+                Span::raw(format!(" {}", trimmed))
             };
             lines.push(Line::from(styled_line));
         }
     }
 
     let content = Paragraph::new(lines).block(block);
-    frame.render_widget(content, content_area);
-
-    // Render input field
-    let input_text = match &app.current_tab().kind {
-        TabKind::ControlPanel { input, .. } => input.as_str(),
-        _ => "",
-    };
-
-    let input_block = Block::bordered()
-        .title("New Task (creates worktree + tab)")
-        .border_style(Style::default().fg(theme.border_color(is_focused)));
-
-    // Show cursor indicator only when content pane is focused
-    let input_display = if is_focused {
-        format!("{}_", input_text)
-    } else {
-        input_text.to_string()
-    };
-    let input_widget = Paragraph::new(input_display).block(input_block);
-    frame.render_widget(input_widget, input_area);
+    frame.render_widget(content, area);
 }
 
 /// Render a terminal tab with diff viewer on left and Claude terminal on right.
