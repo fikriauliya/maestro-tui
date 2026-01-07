@@ -103,12 +103,6 @@ pub enum Command {
     DialogCancel,
     /// Reload bd ready output for control panel
     ReloadBdReady(Vec<String>),
-    /// Select previous worktree in control panel list
-    #[allow(dead_code)]
-    SelectPrevWorktree,
-    /// Select next worktree in control panel list
-    #[allow(dead_code)]
-    SelectNextWorktree,
     /// Merge worktree (from WorktreeAction dialog)
     DialogMerge,
     /// Remove worktree (from WorktreeAction dialog)
@@ -249,30 +243,6 @@ impl Tab {
         }
     }
 
-    /// Ensure left terminal exists and is properly sized.
-    /// Creates a shell terminal if needed, or resizes if dimensions changed.
-    /// Note: Currently unused as left pane shows diff viewer, but kept for potential toggle feature.
-    #[allow(dead_code)]
-    pub fn ensure_left_terminal(&mut self, area: Rect) {
-        if self.pair.needs_left(area) {
-            let inner = inner_area(area);
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-            let term_result = if let Some(cwd) = self.worktree_path() {
-                Terminal::with_command_in_dir(inner.width, inner.height, &shell, &[], cwd)
-            } else {
-                Terminal::new(inner.width, inner.height)
-            };
-            if let Ok(term) = term_result {
-                self.pair.set_left(term, area);
-            }
-        } else if let Some((cols, rows)) = self.pair.needs_left_resize(area)
-            && let Some(term) = self.pair.get_mut(Pane::Left)
-        {
-            term.resize(cols, rows);
-            self.pair.update_left_size(area);
-        }
-    }
-
     /// Ensure right terminal exists and is properly sized.
     /// Creates a Claude terminal if needed, or resizes if dimensions changed.
     pub fn ensure_right_terminal(&mut self, area: Rect) {
@@ -343,21 +313,6 @@ impl Tab {
         } = self.kind
         {
             *focused_pane = pane;
-        }
-    }
-
-    /// Toggle control panel pane focus
-    #[allow(dead_code)]
-    pub fn toggle_control_panel_pane(&mut self) {
-        if let TabKind::ControlPanel {
-            ref mut focused_pane,
-            ..
-        } = self.kind
-        {
-            *focused_pane = match focused_pane {
-                ControlPanelPane::Content => ControlPanelPane::Claude,
-                ControlPanelPane::Claude => ControlPanelPane::Content,
-            };
         }
     }
 
@@ -580,9 +535,6 @@ impl App {
             }
             Command::DialogCancel => {
                 self.dialog = Dialog::None;
-            }
-            Command::SelectPrevWorktree | Command::SelectNextWorktree => {
-                // Handled directly in event handler (needs worktree count)
             }
             Command::DialogMerge | Command::DialogRemove => {
                 // Handled in event handler's process_dialog_key

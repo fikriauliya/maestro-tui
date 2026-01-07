@@ -333,14 +333,6 @@ fn extract_issue_title(line: &str) -> String {
     }
 }
 
-/// Find the tab index for a given branch name.
-#[allow(dead_code)]
-fn find_tab_for_branch(app: &App, branch: &str) -> Option<usize> {
-    app.tabs
-        .iter()
-        .position(|tab| matches!(&tab.kind, TabKind::Worktree { branch: b, .. } if b == branch))
-}
-
 /// Trigger rebase workflow for a specific worktree via Claude Code pane.
 /// Sends a prompt to the Claude Code terminal in the control panel.
 fn trigger_merge_worktree(app: &mut App, wt_manager: &Option<WorktreeManager>, branch: &str) {

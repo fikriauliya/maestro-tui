@@ -400,20 +400,6 @@ impl<G: GitBackend> WorktreeManager<G> {
         Ok(warnings)
     }
 
-    /// Get the diff between main and a branch
-    ///
-    /// Returns the diff output as a string, useful for generating commit messages.
-    #[allow(dead_code)]
-    pub fn get_branch_diff(&self, branch: &str) -> Result<String> {
-        let main_branch = self.get_main_branch()?;
-        let diff_output = self
-            .git
-            .execute(&["diff", &format!("{}...{}", main_branch, branch)])
-            .wrap_err("Failed to get diff")?;
-
-        Ok(String::from_utf8_lossy(&diff_output.stdout).to_string())
-    }
-
     /// Rebase a worktree branch onto main and fast-forward merge
     ///
     /// This performs a rebase workflow:
@@ -610,33 +596,10 @@ pub mod mock {
             }
         }
 
-        /// Set the response for a command
-        pub fn set_response(&self, args: &[&str], stdout: &str, success: bool) {
-            let key = args.join(" ");
-            let output = std::process::Output {
-                status: if success {
-                    std::process::ExitStatus::default()
-                } else {
-                    // Create a failed status - this is platform-dependent
-                    // For testing, we'll use the success check in the code
-                    std::process::ExitStatus::default()
-                },
-                stdout: stdout.as_bytes().to_vec(),
-                stderr: Vec::new(),
-            };
-            // Note: ExitStatus::default() is always success, so we need a different approach
-            self.responses.lock().unwrap().insert(key, output);
-        }
-
         /// Set response with custom success status using raw output
         pub fn set_raw_response(&self, args: &[&str], output: std::process::Output) {
             let key = args.join(" ");
             self.responses.lock().unwrap().insert(key, output);
-        }
-
-        /// Get all executed commands
-        pub fn get_executed(&self) -> Vec<Vec<String>> {
-            self.executed.lock().unwrap().clone()
         }
     }
 
