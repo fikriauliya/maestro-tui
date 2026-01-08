@@ -15,6 +15,7 @@ pub fn key_to_bytes(key: &KeyEvent) -> Vec<u8> {
         KeyCode::Enter => vec![b'\r'],
         KeyCode::Backspace => vec![127],
         KeyCode::Tab => vec![b'\t'],
+        KeyCode::BackTab => b"\x1b[Z".to_vec(), // Shift+Tab
         KeyCode::Esc => vec![0x1b],
         KeyCode::Up => b"\x1b[A".to_vec(),
         KeyCode::Down => b"\x1b[B".to_vec(),
@@ -105,6 +106,7 @@ mod tests {
         assert_eq!(key_to_bytes(&make_key(KeyCode::Enter)), b"\r");
         assert_eq!(key_to_bytes(&make_key(KeyCode::Backspace)), vec![127]);
         assert_eq!(key_to_bytes(&make_key(KeyCode::Tab)), b"\t");
+        assert_eq!(key_to_bytes(&make_key(KeyCode::BackTab)), b"\x1b[Z"); // Shift+Tab
         assert_eq!(key_to_bytes(&make_key(KeyCode::Esc)), vec![0x1b]);
     }
 
