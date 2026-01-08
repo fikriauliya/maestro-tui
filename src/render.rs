@@ -124,7 +124,7 @@ fn render_control_panel(app: &mut App, frame: &mut Frame, area: Rect) {
 
     let tab = app.current_tab();
     let right_block = Block::bordered()
-        .title("Claude (try: 'do <task>')")
+        .title("Claude (try: 'add task: <task>')")
         .border_style(
             Style::default().fg(theme.border_color(focused_pane == ControlPanelPane::Claude)),
         );
